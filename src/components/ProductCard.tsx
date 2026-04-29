@@ -11,6 +11,11 @@ export default function ProductCard({ product }: { product: Product }) {
   const { addToCart } = useCart();
   const { has, toggle } = useWishlist();
   const liked = has(product.id);
+  const hasDiscount =
+    typeof product.originalPrice === 'number' && product.originalPrice > product.price;
+  const discountPct = hasDiscount
+    ? Math.round(((product.originalPrice! - product.price) / product.originalPrice!) * 100)
+    : 0;
 
   return (
     <div className="group relative card-lift bg-dark-700/50 backdrop-blur border border-white/10 rounded-2xl overflow-hidden hover:border-primary/50">
@@ -33,6 +38,13 @@ export default function ProductCard({ product }: { product: Product }) {
           {product.color && (
             <span className="absolute top-3 left-3 bg-primary/80 text-white text-xs px-3 py-1 rounded-full backdrop-blur">
               {product.color}
+            </span>
+          )}
+          {hasDiscount && (
+            <span
+              className={`absolute ${product.color ? 'top-11' : 'top-3'} left-3 bg-red-500 text-white text-xs font-semibold px-3 py-1 rounded-full shadow-md`}
+            >
+              -{discountPct}%
             </span>
           )}
         </div>
@@ -62,7 +74,12 @@ export default function ProductCard({ product }: { product: Product }) {
         </Link>
         <p className="text-gray-400 text-sm mb-3 line-clamp-2 min-h-[2.5rem]">{product.description}</p>
         <div className="flex items-center justify-between">
-          <span className="text-secondary font-bold text-xl">{product.price} EGP</span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-secondary font-bold text-xl">{product.price} EGP</span>
+            {hasDiscount && (
+              <span className="text-gray-500 text-sm line-through">{product.originalPrice} EGP</span>
+            )}
+          </div>
           <button
             onClick={() => addToCart(product)}
             disabled={!product.inStock}

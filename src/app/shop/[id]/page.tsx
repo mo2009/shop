@@ -110,7 +110,19 @@ export default function ProductPage() {
 
         <div className="animate-fade-up delay-75">
           <h1 className="text-3xl md:text-4xl font-bold text-white mb-3 tracking-tight">{product.name}</h1>
-          <p className="text-secondary font-bold text-3xl mb-6">{product.price} EGP</p>
+          <div className="flex items-baseline gap-3 flex-wrap mb-6">
+            <span className="text-secondary font-bold text-3xl">{product.price} EGP</span>
+            {typeof product.originalPrice === 'number' && product.originalPrice > product.price && (
+              <>
+                <span className="text-gray-500 text-xl line-through">
+                  {product.originalPrice} EGP
+                </span>
+                <span className="bg-red-500 text-white text-sm font-semibold px-3 py-1 rounded-full">
+                  -{Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)}%
+                </span>
+              </>
+            )}
+          </div>
           <p className="text-gray-400 mb-8 leading-relaxed whitespace-pre-wrap">{product.description}</p>
 
           <div className="flex items-center gap-3 mb-6">

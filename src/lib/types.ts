@@ -3,6 +3,8 @@ export interface Product {
   name: string;
   description: string;
   price: number;
+  /** When set and greater than `price`, the storefront shows it as strike-through with a discount badge. */
+  originalPrice?: number;
   /** Primary category name (for backward compatibility with older docs). */
   category: string;
   /** All categories this product belongs to. New products always have this set. */

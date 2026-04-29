@@ -23,6 +23,7 @@ export default function AdminProducts() {
     name: string;
     description: string;
     price: string;
+    originalPrice: string;
     categories: string[];
     image: string;
     color: string;
@@ -31,6 +32,7 @@ export default function AdminProducts() {
     name: '',
     description: '',
     price: '',
+    originalPrice: '',
     categories: [],
     image: '',
     color: '',
@@ -58,6 +60,7 @@ export default function AdminProducts() {
       name: '',
       description: '',
       price: '',
+      originalPrice: '',
       categories: categories[0]?.name ? [categories[0].name] : [],
       image: '',
       color: '',
@@ -78,6 +81,7 @@ export default function AdminProducts() {
       name: p.name,
       description: p.description,
       price: String(p.price),
+      originalPrice: p.originalPrice ? String(p.originalPrice) : '',
       categories: cats,
       image: p.image,
       color: p.color || '',
@@ -102,11 +106,18 @@ export default function AdminProducts() {
       toast.error('Pick at least one category');
       return;
     }
+    const priceNum = Number(form.price);
+    const originalNum = form.originalPrice ? Number(form.originalPrice) : null;
+    if (originalNum !== null && originalNum <= priceNum) {
+      toast.error('Original price must be higher than the current price');
+      return;
+    }
     try {
       const data = {
         name: form.name,
         description: form.description,
-        price: Number(form.price),
+        price: priceNum,
+        originalPrice: originalNum,
         category: form.categories[0],
         categories: form.categories,
         image: form.image,
@@ -162,7 +173,12 @@ export default function AdminProducts() {
                   {p.color && ` • ${p.color}`}
                 </p>
               </div>
-              <span className="text-secondary font-bold">{p.price} EGP</span>
+              <div className="flex flex-col items-end">
+                <span className="text-secondary font-bold">{p.price} EGP</span>
+                {p.originalPrice && p.originalPrice > p.price && (
+                  <span className="text-gray-500 text-xs line-through">{p.originalPrice} EGP</span>
+                )}
+              </div>
               <span className={`px-2 py-1 rounded-full text-xs ${p.inStock ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
                 {p.inStock ? 'In Stock' : 'Out'}
               </span>
@@ -185,8 +201,39 @@ export default function AdminProducts() {
                 className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none" />
               <textarea placeholder="Description" rows={3} value={form.description} onChange={e => setForm({...form, description: e.target.value})}
                 className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none resize-none" />
-              <input type="number" placeholder="Price (EGP)" value={form.price} onChange={e => setForm({...form, price: e.target.value})}
-                className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="price" className="block text-gray-400 text-xs mb-1">
+                    Price (EGP)
+                  </label>
+                  <input
+                    id="price"
+                    type="number"
+                    placeholder="Current price"
+                    value={form.price}
+                    onChange={e => setForm({ ...form, price: e.target.value })}
+                    className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="originalPrice" className="block text-gray-400 text-xs mb-1">
+                    Original Price <span className="text-gray-500">(optional)</span>
+                  </label>
+                  <input
+                    id="originalPrice"
+                    type="number"
+                    placeholder="Leave blank for no discount"
+                    value={form.originalPrice}
+                    onChange={e => setForm({ ...form, originalPrice: e.target.value })}
+                    className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+              {form.originalPrice && Number(form.originalPrice) > Number(form.price || 0) && (
+                <p className="text-green-400 text-xs -mt-2">
+                  {Math.round(((Number(form.originalPrice) - Number(form.price)) / Number(form.originalPrice)) * 100)}% OFF will be shown on the storefront.
+                </p>
+              )}
 
               {/* Multi-category picker */}
               <div>
