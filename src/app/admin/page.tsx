@@ -114,8 +114,9 @@ export default function AdminDashboard() {
   const recentOrders = useMemo(
     () =>
       [...orders]
+        .filter(o => o.orderStatus === 'pending' || o.orderStatus === 'processing')
         .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
-        .slice(0, 5),
+        .slice(0, 10),
     [orders],
   );
 
@@ -217,7 +218,7 @@ export default function AdminDashboard() {
 
       <div className="glass border border-white/10 rounded-2xl p-6 animate-fade-up">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-white tracking-tight">Recent Orders</h2>
+          <h2 className="text-lg font-semibold text-white tracking-tight">Pending &amp; Processing Orders</h2>
           <button
             onClick={async () => {
               if (!confirm('⚠️ This will permanently delete ALL orders. Are you sure?')) return;
@@ -239,7 +240,7 @@ export default function AdminDashboard() {
           </button>
         </div>
         {recentOrders.length === 0 ? (
-          <p className="text-gray-400">No orders yet.</p>
+          <p className="text-gray-400">No pending or processing orders.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

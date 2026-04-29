@@ -22,7 +22,7 @@ export default function ProductCard({ product }: { product: Product }) {
       <Link href={`/shop/${product.id}`} aria-label={product.name}>
         <div className="relative h-64 overflow-hidden bg-dark-600">
           <Image
-            src={product.image}
+            src={product.image || '/images/product-placeholder.svg'}
             alt={product.name}
             fill
             sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 25vw"
