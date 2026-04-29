@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { CartItem, Product } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
@@ -34,6 +34,14 @@ const readLocalCart = (): CartItem[] => {
   }
 };
 
+const writeLocalCart = (items: CartItem[]) => {
+  try {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(items));
+  } catch {
+    /* ignore */
+  }
+};
+
 const mergeCarts = (a: CartItem[], b: CartItem[]): CartItem[] => {
   const map = new Map<string, CartItem>();
   for (const item of a) {
@@ -53,11 +61,22 @@ const mergeCarts = (a: CartItem[], b: CartItem[]): CartItem[] => {
   return Array.from(map.values());
 };
 
+const serializeItems = (items: CartItem[]) =>
+  JSON.stringify(
+    items.map(i => ({ id: i.product.id, q: i.quantity })).sort((a, b) => a.id.localeCompare(b.id)),
+  );
+
 export function CartProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [items, setItems] = useState<CartItem[]>([]);
   const [hydrated, setHydrated] = useState(false);
-  const lastSyncedUid = useRef<string | null>(null);
+  // 'idle' before we know the user state, 'loading' while we fetch/merge the
+  // signed-in cart, 'ready' when we are safe to sync local changes up.
+  const [syncState, setSyncState] = useState<'idle' | 'loading' | 'ready'>('idle');
+  const attemptedUid = useRef<string | null | undefined>(undefined);
+  const syncedUid = useRef<string | null>(null);
+  const lastSyncedSig = useRef<string>('');
+  const skipNextSnapshot = useRef(false);
 
   // Load guest cart from localStorage on first mount.
   useEffect(() => {
@@ -65,59 +84,74 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setHydrated(true);
   }, []);
 
-  // Always persist to localStorage once hydrated — keeps guest cart across reloads.
+  // Persist to localStorage whenever items change — keeps a fallback copy
+  // and preserves the guest cart across reloads when signed out.
   useEffect(() => {
     if (!hydrated) return;
-    try {
-      localStorage.setItem(LOCAL_KEY, JSON.stringify(items));
-    } catch {
-      /* ignore */
-    }
+    writeLocalCart(items);
   }, [items, hydrated]);
 
-  // When the signed-in user changes, merge the local cart with the stored
-  // Firestore cart and use that as the authoritative cart.
+  // Reconcile with Firestore whenever the signed-in user changes.
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || authLoading) return;
     const uid = user?.uid ?? null;
-    if (uid === lastSyncedUid.current) return;
-    lastSyncedUid.current = uid;
+    if (attemptedUid.current === uid) return;
+    attemptedUid.current = uid;
 
-    if (!uid) return; // signed out — keep whatever is in local cart
+    // Signed out → leave the local (guest) cart alone.
+    if (!uid) {
+      syncedUid.current = null;
+      setSyncState('idle');
+      return;
+    }
 
     let cancelled = false;
+    setSyncState('loading');
+
     (async () => {
       try {
-        const snap = await getDoc(doc(db, 'carts', uid));
+        const ref = doc(db, 'carts', uid);
+        const snap = await getDoc(ref);
         const remote: CartItem[] = snap.exists()
           ? ((snap.data()?.items as CartItem[]) ?? [])
           : [];
         const local = readLocalCart();
         const merged = mergeCarts(remote, local);
         if (cancelled) return;
+
+        syncedUid.current = uid;
+        lastSyncedSig.current = serializeItems(merged);
+        skipNextSnapshot.current = true;
         setItems(merged);
-        await setDoc(
-          doc(db, 'carts', uid),
-          { items: merged, updatedAt: new Date() },
-          { merge: true },
-        );
+
+        // Only write back if we actually added anything from the local cart.
+        if (serializeItems(merged) !== serializeItems(remote)) {
+          await setDoc(ref, { items: merged, updatedAt: new Date() }, { merge: true });
+        }
+        if (!cancelled) setSyncState('ready');
       } catch (err) {
         console.error('Failed to restore cart for user:', err);
+        if (!cancelled) setSyncState('ready'); // still allow local use
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [user, hydrated]);
+  }, [user, authLoading, hydrated]);
 
-  // While signed in, keep Firestore copy in sync with local state.
+  // While signed in and ready, push local changes up to Firestore (debounced).
   useEffect(() => {
-    if (!hydrated) return;
+    if (syncState !== 'ready') return;
     const uid = user?.uid;
-    if (!uid) return;
-    if (lastSyncedUid.current !== uid) return; // initial merge hasn't happened yet
+    if (!uid || syncedUid.current !== uid) return;
+
+    const sig = serializeItems(items);
+    if (sig === lastSyncedSig.current) return;
+
     const handle = setTimeout(() => {
+      lastSyncedSig.current = sig;
+      skipNextSnapshot.current = true;
       setDoc(
         doc(db, 'carts', uid),
         { items, updatedAt: new Date() },
@@ -125,7 +159,28 @@ export function CartProvider({ children }: { children: ReactNode }) {
       ).catch(err => console.error('Failed to sync cart:', err));
     }, 300);
     return () => clearTimeout(handle);
-  }, [items, user, hydrated]);
+  }, [items, user, syncState]);
+
+  // Live updates from other devices — reflect Firestore changes locally.
+  useEffect(() => {
+    if (syncState !== 'ready') return;
+    const uid = user?.uid;
+    if (!uid || syncedUid.current !== uid) return;
+
+    const unsub = onSnapshot(doc(db, 'carts', uid), snap => {
+      if (!snap.exists()) return;
+      if (skipNextSnapshot.current) {
+        skipNextSnapshot.current = false;
+        return;
+      }
+      const remote = (snap.data()?.items as CartItem[]) ?? [];
+      const sig = serializeItems(remote);
+      if (sig === lastSyncedSig.current) return;
+      lastSyncedSig.current = sig;
+      setItems(remote);
+    });
+    return () => unsub();
+  }, [user, syncState]);
 
   const addToCart = (product: Product) => {
     let alreadyInCart = false;
