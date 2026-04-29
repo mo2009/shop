@@ -91,7 +91,7 @@ export default function CartDrawer({ open, onClose }: Props) {
                     onClick={onClose}
                     className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-dark-700"
                   >
-                    <Image src={item.product.image} alt={item.product.name} fill className="object-cover" />
+                    <Image src={item.product.image || '/images/product-placeholder.svg'} alt={item.product.name} fill className="object-cover" />
                   </Link>
                   <div className="flex-1 min-w-0">
                     <Link

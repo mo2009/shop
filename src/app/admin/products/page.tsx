@@ -101,7 +101,7 @@ export default function AdminProducts() {
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.price || !form.image) { toast.error('Name, price, and image are required'); return; }
+    if (!form.name || !form.price) { toast.error('Name and price are required'); return; }
     if (form.categories.length === 0) {
       toast.error('Pick at least one category');
       return;
@@ -164,7 +164,7 @@ export default function AdminProducts() {
           {products.map(p => (
             <div key={p.id} className="bg-dark-700/50 border border-white/10 rounded-xl p-4 flex items-center gap-4">
               <div className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
-                <Image src={p.image} alt={p.name} fill className="object-cover" />
+                <Image src={p.image || '/images/product-placeholder.svg'} alt={p.name} fill className="object-cover" />
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="text-white font-medium truncate">{p.name}</h3>
@@ -272,8 +272,20 @@ export default function AdminProducts() {
                 )}
               </div>
 
-              <input type="text" placeholder="Image URL (e.g. /images/white-nfc-card.png)" value={form.image} onChange={e => setForm({...form, image: e.target.value})}
-                className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none" />
+              <div>
+                <label htmlFor="image" className="block text-gray-400 text-xs mb-1">
+                  Image URL <span className="text-gray-500">(optional)</span>
+                </label>
+                <input
+                  id="image"
+                  type="text"
+                  placeholder="e.g. /images/white-nfc-card.png"
+                  value={form.image}
+                  onChange={e => setForm({ ...form, image: e.target.value })}
+                  className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none"
+                />
+                <p className="text-gray-500 text-xs mt-1">Leave blank to show a neutral placeholder on the storefront.</p>
+              </div>
               <input type="text" placeholder="Color (optional)" value={form.color} onChange={e => setForm({...form, color: e.target.value})}
                 className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none" />
               <label className="flex items-center gap-3 text-white">

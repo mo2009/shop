@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#27272a"/>
+      <stop offset="100%" stop-color="#18181b"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" fill="url(#g)"/>
+  <g fill="none" stroke="#52525b" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="110" y="130" width="180" height="140" rx="14"/>
+    <circle cx="160" cy="180" r="14"/>
+    <path d="M130 250 L190 200 L230 230 L270 190"/>
+  </g>
+  <text x="200" y="310" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+        font-size="20" font-weight="600" fill="#a1a1aa" text-anchor="middle">
+    No image
+  </text>
+</svg>

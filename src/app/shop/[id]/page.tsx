@@ -93,7 +93,7 @@ export default function ProductPage() {
         <div className="animate-fade-up">
           <div className="relative aspect-square bg-dark-700 rounded-2xl overflow-hidden group">
             <Image
-              src={product.image}
+              src={product.image || '/images/product-placeholder.svg'}
               alt={product.name}
               fill
               sizes="(max-width: 768px) 100vw, 50vw"
