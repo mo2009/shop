@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useSettings } from '@/context/SettingsContext';
+import { useTheme } from '@/context/ThemeContext';
 import toast from 'react-hot-toast';
-import { FiSave } from 'react-icons/fi';
+import { FiSave, FiSun, FiMoon } from 'react-icons/fi';
 import { FaFacebook, FaInstagram, FaWhatsapp, FaTiktok } from 'react-icons/fa';
 
 interface SettingsForm {
@@ -20,6 +21,7 @@ interface SettingsForm {
 
 export default function AdminSettings() {
   const { settings, loading, updateSettings } = useSettings();
+  const { theme, setTheme } = useTheme();
   const [form, setForm] = useState<SettingsForm>({
     brandName: '',
     logoUrl: '',
@@ -168,6 +170,39 @@ export default function AdminSettings() {
               onChange={e => setField('socialTiktok', e.target.value)}
               className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none"
             />
+          </div>
+        </div>
+      </section>
+
+      {/* Appearance */}
+      <section className="mb-8">
+        <h2 className="text-white font-semibold mb-4 pb-2 border-b border-white/10">Appearance</h2>
+        <div className="bg-dark-600 border border-white/10 rounded-xl p-4">
+          <p className="text-white font-medium mb-1">Theme</p>
+          <p className="text-gray-400 text-sm mb-4">Choose how the admin panel and storefront look on this device.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setTheme('dark')}
+              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition ${
+                theme === 'dark'
+                  ? 'bg-primary text-white border-primary'
+                  : 'bg-dark-700 text-gray-300 border-white/10 hover:border-white/20'
+              }`}
+            >
+              <FiMoon size={18} /> Dark
+            </button>
+            <button
+              type="button"
+              onClick={() => setTheme('light')}
+              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition ${
+                theme === 'light'
+                  ? 'bg-primary text-white border-primary'
+                  : 'bg-dark-700 text-gray-300 border-white/10 hover:border-white/20'
+              }`}
+            >
+              <FiSun size={18} /> Light
+            </button>
           </div>
         </div>
       </section>

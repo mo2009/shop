@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { FiShoppingCart, FiMenu, FiX, FiUser } from 'react-icons/fi';
 import { useSettings } from '@/context/SettingsContext';
+import ThemeToggle from '@/components/ThemeToggle';
 
 export default function Navbar() {
   const { settings, loading } = useSettings();
@@ -61,6 +62,8 @@ export default function Navbar() {
           </div>
 
           <div className="flex items-center gap-4">
+            <ThemeToggle />
+
             <Link href="/cart" className="relative text-gray-300 hover:text-primary transition">
               <FiShoppingCart size={24} />
               {itemCount > 0 && (
@@ -113,6 +116,7 @@ export default function Navbar() {
           <Link href="/shop" className="block text-gray-300 hover:text-primary" onClick={() => setMobileOpen(false)}>Shop</Link>
           <Link href="/about" className="block text-gray-300 hover:text-primary" onClick={() => setMobileOpen(false)}>About</Link>
           <Link href="/contact" className="block text-gray-300 hover:text-primary" onClick={() => setMobileOpen(false)}>Contact</Link>
+          <ThemeToggle showLabel className="pt-1" />
           {user && (
             <div className="border-t border-white/10 pt-3 space-y-3">
               {userProfile?.isAdmin && (

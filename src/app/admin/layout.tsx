@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { FiHome, FiPackage, FiShoppingBag, FiDollarSign, FiArrowLeft, FiSettings, FiTag } from 'react-icons/fi';
+import ThemeToggle from '@/components/ThemeToggle';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { userProfile, loading } = useAuth();
@@ -54,6 +55,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <Link href="/" className="flex items-center gap-2 text-gray-500 hover:text-primary mt-8 px-4 transition">
           <FiArrowLeft size={16} /> Back to Shop
         </Link>
+        <div className="mt-4 px-4">
+          <ThemeToggle showLabel className="text-gray-400" />
+        </div>
       </aside>
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-dark-800 border-t border-white/10 z-50 flex">
