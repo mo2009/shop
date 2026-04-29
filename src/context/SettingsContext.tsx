@@ -6,6 +6,7 @@ import { db } from '@/lib/firebase';
 
 type Settings = {
   brandName: string;
+  tabTitle: string;
   logoUrl: string;
   contactEmail: string;
   contactPhone: string;
@@ -13,7 +14,7 @@ type Settings = {
   socialInstagram: string;
   socialWhatsapp: string;
   socialTiktok: string;
-  instapayEnabled: boolean; 
+  instapayEnabled: boolean;
 };
 
 type SettingsContextType = {

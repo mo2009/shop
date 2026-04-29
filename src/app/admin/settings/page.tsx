@@ -14,6 +14,7 @@ import { FaFacebook, FaInstagram, FaWhatsapp, FaTiktok } from 'react-icons/fa';
 
 interface SettingsForm {
   brandName: string;
+  tabTitle: string;
   logoUrl: string;
   contactEmail: string;
   contactPhone: string;
@@ -41,6 +42,7 @@ export default function AdminSettings() {
   const [tab, setTab] = useState<TabId>('brand');
   const [form, setForm] = useState<SettingsForm>({
     brandName: '',
+    tabTitle: '',
     logoUrl: '',
     contactEmail: '',
     contactPhone: '',
@@ -55,6 +57,7 @@ export default function AdminSettings() {
     if (settings) {
       setForm({
         brandName: settings.brandName || '',
+        tabTitle: settings.tabTitle || '',
         logoUrl: settings.logoUrl || '',
         contactEmail: settings.contactEmail || '',
         contactPhone: settings.contactPhone || '',
@@ -122,6 +125,22 @@ export default function AdminSettings() {
               <label htmlFor="brandName" className="block text-gray-400 text-xs mb-1">Brand Name</label>
               <input id="brandName" type="text" value={form.brandName}
                 onChange={e => setField('brandName', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label htmlFor="tabTitle" className="block text-gray-400 text-xs mb-1">
+                Browser Tab Title
+              </label>
+              <input
+                id="tabTitle"
+                type="text"
+                value={form.tabTitle}
+                onChange={e => setField('tabTitle', e.target.value)}
+                className={inputCls}
+                placeholder="e.g. Mo-Tech | Smart NFC Cards"
+              />
+              <p className="text-gray-500 text-xs mt-1">
+                Shown next to the favicon in the browser tab. Leave blank to use the brand name with the default tagline.
+              </p>
             </div>
             <div>
               <label htmlFor="logoUrl" className="block text-gray-400 text-xs mb-1">Logo URL</label>
