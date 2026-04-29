@@ -15,8 +15,6 @@ import {
   FiChevronLeft,
   FiChevronRight,
 } from 'react-icons/fi';
-import ThemeToggle from '@/components/ThemeToggle';
-
 const SIDEBAR_KEY = 'admin-sidebar-collapsed';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -123,14 +121,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <FiArrowLeft size={16} />
             <span className={collapsed ? 'hidden' : ''}>Back to Shop</span>
           </Link>
-          <div className={`px-3 ${collapsed ? 'hidden' : ''}`}>
-            <ThemeToggle showLabel className="w-full text-gray-400" />
-          </div>
-          {collapsed && (
-            <div className="flex justify-center">
-              <ThemeToggle />
-            </div>
-          )}
           <button
             onClick={() => setCollapsed(c => !c)}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
