@@ -31,7 +31,16 @@ export default function ProductPage() {
           // fetch related (same category)
           const listSnap = await getDocs(collection(db, 'products'));
           const all = listSnap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
-          setRelated(all.filter(x => x.id !== p.id && x.category === p.category).slice(0, 4));
+          const pCats = p.categories && p.categories.length > 0 ? p.categories : [p.category];
+          setRelated(
+            all
+              .filter(x => {
+                if (x.id === p.id) return false;
+                const xCats = x.categories && x.categories.length > 0 ? x.categories : [x.category];
+                return xCats.some(c => pCats.includes(c));
+              })
+              .slice(0, 4),
+          );
         }
       } catch (e) {
         console.error(e);

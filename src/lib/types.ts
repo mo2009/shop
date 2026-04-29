@@ -3,7 +3,10 @@ export interface Product {
   name: string;
   description: string;
   price: number;
-  category: 'nfc-card' | 'digital-service';
+  /** Primary category name (for backward compatibility with older docs). */
+  category: string;
+  /** All categories this product belongs to. New products always have this set. */
+  categories?: string[];
   image: string;
   color?: string;
   inStock: boolean;

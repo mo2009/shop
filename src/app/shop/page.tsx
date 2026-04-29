@@ -43,7 +43,13 @@ export default function ShopPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     let list = products;
-    if (filter !== 'all') list = list.filter(p => p.category === filter);
+    if (filter !== 'all') {
+      list = list.filter(p =>
+        p.categories && p.categories.length > 0
+          ? p.categories.includes(filter)
+          : p.category === filter,
+      );
+    }
     if (q) {
       list = list.filter(
         p =>
