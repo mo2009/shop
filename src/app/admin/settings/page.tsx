@@ -2,17 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useSettings } from '@/context/SettingsContext';
-import { useTheme } from '@/context/ThemeContext';
 import toast from 'react-hot-toast';
 import {
   FiSave,
-  FiSun,
-  FiMoon,
   FiTag,
   FiMail,
   FiCreditCard,
   FiShare2,
-  FiSliders,
 } from 'react-icons/fi';
 import { FaFacebook, FaInstagram, FaWhatsapp, FaTiktok } from 'react-icons/fa';
 
@@ -28,14 +24,13 @@ interface SettingsForm {
   instapayEnabled: boolean;
 }
 
-type TabId = 'brand' | 'contact' | 'payment' | 'social' | 'appearance';
+type TabId = 'brand' | 'contact' | 'payment' | 'social';
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'brand', label: 'Brand', icon: <FiTag size={16} /> },
   { id: 'contact', label: 'Contact', icon: <FiMail size={16} /> },
   { id: 'payment', label: 'Payment', icon: <FiCreditCard size={16} /> },
   { id: 'social', label: 'Social', icon: <FiShare2 size={16} /> },
-  { id: 'appearance', label: 'Appearance', icon: <FiSliders size={16} /> },
 ];
 
 const inputCls =
@@ -43,7 +38,6 @@ const inputCls =
 
 export default function AdminSettings() {
   const { settings, loading, updateSettings } = useSettings();
-  const { theme, setTheme } = useTheme();
   const [tab, setTab] = useState<TabId>('brand');
   const [form, setForm] = useState<SettingsForm>({
     brandName: '',
@@ -211,36 +205,6 @@ export default function AdminSettings() {
           </div>
         )}
 
-        {tab === 'appearance' && (
-          <div className="space-y-4">
-            <h2 className="text-white font-semibold">Appearance</h2>
-            <p className="text-gray-400 text-sm">Choose how the admin panel and storefront look on this device.</p>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setTheme('dark')}
-                className={`flex items-center justify-center gap-2 px-4 py-4 rounded-xl border transition ${
-                  theme === 'dark'
-                    ? 'bg-primary text-white border-primary'
-                    : 'bg-white/5 text-gray-300 border-white/10 hover:border-white/20'
-                }`}
-              >
-                <FiMoon size={18} /> Dark
-              </button>
-              <button
-                type="button"
-                onClick={() => setTheme('light')}
-                className={`flex items-center justify-center gap-2 px-4 py-4 rounded-xl border transition ${
-                  theme === 'light'
-                    ? 'bg-primary text-white border-primary'
-                    : 'bg-white/5 text-gray-300 border-white/10 hover:border-white/20'
-                }`}
-              >
-                <FiSun size={18} /> Light
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       <button
