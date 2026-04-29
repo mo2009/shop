@@ -18,9 +18,12 @@ export default function BrandMetaUpdater() {
     if (typeof document === 'undefined') return;
 
     const name = settings?.brandName?.trim();
+    const tabTitle = settings?.tabTitle?.trim();
     const logo = settings?.logoUrl?.trim() || DEFAULT_ICON;
 
-    document.title = name
+    document.title = tabTitle
+      ? tabTitle
+      : name
       ? `${name} | Smart NFC Cards & Digital Solutions`
       : DEFAULT_TITLE;
 
@@ -42,7 +45,7 @@ export default function BrandMetaUpdater() {
     setIcon('icon');
     setIcon('shortcut icon');
     setIcon('apple-touch-icon');
-  }, [settings?.brandName, settings?.logoUrl]);
+  }, [settings?.brandName, settings?.tabTitle, settings?.logoUrl]);
 
   return null;
 }
