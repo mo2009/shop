@@ -10,6 +10,7 @@ import { WishlistProvider } from '@/context/WishlistContext';
 import Footer from '@/components/Footer';
 import ActiveUserTracker from '@/components/ActiveUserTracker';
 import ThemeMetaUpdater from '@/components/ThemeMetaUpdater';
+import BrandMetaUpdater from '@/components/BrandMetaUpdater';
 import MobileBottomNav from '@/components/MobileBottomNav';
 import { Toaster } from 'react-hot-toast';
 
@@ -45,6 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <ThemeMetaUpdater />
           <SettingsProvider>
+            <BrandMetaUpdater />
             <AuthProvider>
               <CartProvider>
                 <WishlistProvider>
