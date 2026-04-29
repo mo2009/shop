@@ -6,7 +6,7 @@ import { db } from '@/lib/firebase';
 import { Product } from '@/lib/types';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
-import { FiPlus, FiEdit2, FiTrash2, FiX } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiX, FiCheck } from 'react-icons/fi';
 
 interface Category {
   id: string;
@@ -19,9 +19,22 @@ export default function AdminProducts() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
-  const [form, setForm] = useState({
-    name: '', description: '', price: '', category: '',
-    image: '', color: '', inStock: true,
+  const [form, setForm] = useState<{
+    name: string;
+    description: string;
+    price: string;
+    categories: string[];
+    image: string;
+    color: string;
+    inStock: boolean;
+  }>({
+    name: '',
+    description: '',
+    price: '',
+    categories: [],
+    image: '',
+    color: '',
+    inStock: true,
   });
 
   const fetchData = async () => {
@@ -41,23 +54,65 @@ export default function AdminProducts() {
 
   const openAdd = () => {
     setEditing(null);
-    setForm({ name: '', description: '', price: '', category: categories[0]?.name ?? '', image: '', color: '', inStock: true });
+    setForm({
+      name: '',
+      description: '',
+      price: '',
+      categories: categories[0]?.name ? [categories[0].name] : [],
+      image: '',
+      color: '',
+      inStock: true,
+    });
     setShowModal(true);
   };
 
   const openEdit = (p: Product) => {
     setEditing(p);
-    setForm({ name: p.name, description: p.description, price: String(p.price), category: p.category, image: p.image, color: p.color || '', inStock: p.inStock });
+    const cats =
+      p.categories && p.categories.length > 0
+        ? p.categories
+        : p.category
+        ? [p.category]
+        : [];
+    setForm({
+      name: p.name,
+      description: p.description,
+      price: String(p.price),
+      categories: cats,
+      image: p.image,
+      color: p.color || '',
+      inStock: p.inStock,
+    });
     setShowModal(true);
+  };
+
+  const toggleCategory = (name: string) => {
+    setForm(prev => {
+      const has = prev.categories.includes(name);
+      return {
+        ...prev,
+        categories: has ? prev.categories.filter(c => c !== name) : [...prev.categories, name],
+      };
+    });
   };
 
   const handleSave = async () => {
     if (!form.name || !form.price || !form.image) { toast.error('Name, price, and image are required'); return; }
+    if (form.categories.length === 0) {
+      toast.error('Pick at least one category');
+      return;
+    }
     try {
       const data = {
-        name: form.name, description: form.description, price: Number(form.price),
-        category: form.category, image: form.image, color: form.color || null,
-        inStock: form.inStock, createdAt: serverTimestamp(),
+        name: form.name,
+        description: form.description,
+        price: Number(form.price),
+        category: form.categories[0],
+        categories: form.categories,
+        image: form.image,
+        color: form.color || null,
+        inStock: form.inStock,
+        createdAt: serverTimestamp(),
       };
       if (editing) {
         await updateDoc(doc(db, 'products', editing.id), data);
@@ -102,7 +157,10 @@ export default function AdminProducts() {
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="text-white font-medium truncate">{p.name}</h3>
-                <p className="text-gray-400 text-sm">{p.category} {p.color && `• ${p.color}`}</p>
+                <p className="text-gray-400 text-sm">
+                  {((p.categories && p.categories.length > 0) ? p.categories : [p.category]).join(', ')}
+                  {p.color && ` • ${p.color}`}
+                </p>
               </div>
               <span className="text-secondary font-bold">{p.price} EGP</span>
               <span className={`px-2 py-1 rounded-full text-xs ${p.inStock ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
@@ -130,20 +188,42 @@ export default function AdminProducts() {
               <input type="number" placeholder="Price (EGP)" value={form.price} onChange={e => setForm({...form, price: e.target.value})}
                 className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none" />
 
-              {/* Dynamic category dropdown */}
-              <select
-                value={form.category}
-                onChange={e => setForm({...form, category: e.target.value})}
-                className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none"
-              >
+              {/* Multi-category picker */}
+              <div>
+                <p className="text-gray-400 text-xs mb-2">
+                  Categories <span className="text-gray-500">(pick one or more)</span>
+                </p>
                 {categories.length === 0 ? (
-                  <option value="" disabled>No categories found</option>
+                  <p className="text-gray-500 text-sm italic">No categories yet. Create some in the Categories page.</p>
                 ) : (
-                  categories.map(cat => (
-                    <option key={cat.id} value={cat.name}>{cat.name}</option>
-                  ))
+                  <div className="flex flex-wrap gap-2">
+                    {categories.map(cat => {
+                      const selected = form.categories.includes(cat.name);
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => toggleCategory(cat.name)}
+                          aria-pressed={selected}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm border transition ${
+                            selected
+                              ? 'bg-primary border-primary text-white'
+                              : 'bg-dark-600 border-white/10 text-gray-300 hover:border-white/20'
+                          }`}
+                        >
+                          {selected && <FiCheck size={12} />}
+                          {cat.name}
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
-              </select>
+                {form.categories.length > 1 && (
+                  <p className="text-gray-500 text-xs mt-2">
+                    Primary category: <span className="text-primary">{form.categories[0]}</span> (first in the list).
+                  </p>
+                )}
+              </div>
 
               <input type="text" placeholder="Image URL (e.g. /images/white-nfc-card.png)" value={form.image} onChange={e => setForm({...form, image: e.target.value})}
                 className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none" />
