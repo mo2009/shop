@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
@@ -8,10 +8,21 @@ import { FiTool, FiClock, FiMail, FiPhone } from 'react-icons/fi';
 
 const ALLOWED_PREFIXES = ['/auth', '/admin'];
 
+// Hard cap on how long we hold the splash before rendering children
+// regardless of context loading state. Prevents a hung Firestore /
+// auth session from leaving every visitor stuck on a loading screen.
+const DECISION_TIMEOUT_MS = 3000;
+
 export default function MaintenanceGate({ children }: { children: ReactNode }) {
   const { settings, loading: settingsLoading } = useSettings();
   const { userProfile, loading: authLoading } = useAuth();
   const pathname = usePathname() || '/';
+
+  const [decisionDeadlineHit, setDecisionDeadlineHit] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDecisionDeadlineHit(true), DECISION_TIMEOUT_MS);
+    return () => window.clearTimeout(t);
+  }, []);
 
   // Treat both real booleans and the string "true" as on so we don't
   // get tripped up by a field accidentally created as a string in
@@ -20,6 +31,8 @@ export default function MaintenanceGate({ children }: { children: ReactNode }) {
   const maintenanceOn =
     raw === true || (typeof raw === 'string' && raw.toLowerCase() === 'true');
 
+  const stillLoading = settingsLoading || authLoading;
+
   if (typeof window !== 'undefined') {
     // eslint-disable-next-line no-console
     console.debug('[MaintenanceGate]', {
@@ -27,14 +40,21 @@ export default function MaintenanceGate({ children }: { children: ReactNode }) {
       raw,
       settingsLoading,
       authLoading,
+      decisionDeadlineHit,
       isAdmin: userProfile?.isAdmin === true,
       pathname,
     });
   }
 
-  // Don't gate while we're still figuring out who the user is — avoids a
-  // flash of the maintenance screen for admins on first paint.
-  if (!maintenanceOn || settingsLoading || authLoading) {
+  // While we don't yet know whether maintenance is on, avoid flashing
+  // the storefront. Hold a neutral splash until either the contexts
+  // finish loading or the safety timeout fires (so we don't deadlock
+  // on an unreachable Firebase).
+  if (stillLoading && !decisionDeadlineHit) {
+    return <LoadingSplash />;
+  }
+
+  if (!maintenanceOn) {
     return <>{children}</>;
   }
 
@@ -59,6 +79,17 @@ export default function MaintenanceGate({ children }: { children: ReactNode }) {
   }
 
   return <MaintenanceScreen brand={settings?.brandName} message={settings?.maintenanceMessage} contactEmail={settings?.contactEmail} contactPhone={settings?.contactPhone} logoUrl={settings?.logoUrl} />;
+}
+
+function LoadingSplash() {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gradient-to-br from-dark-900 via-dark-800 to-dark-900">
+      <div
+        className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin"
+        aria-label="Loading"
+      />
+    </div>
+  );
 }
 
 function MaintenanceScreen({
