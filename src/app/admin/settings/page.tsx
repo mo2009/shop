@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useSettings } from '@/context/SettingsContext';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import toast from 'react-hot-toast';
 import {
   FiSave,
@@ -12,6 +14,7 @@ import {
   FiBell,
   FiFileText,
   FiSearch,
+  FiTool,
 } from 'react-icons/fi';
 import { FaFacebook, FaInstagram, FaWhatsapp, FaTiktok } from 'react-icons/fa';
 
@@ -37,9 +40,19 @@ interface SettingsForm {
   legalFaq: string;
   seoDescription: string;
   seoKeywords: string;
+  maintenanceMode: boolean;
+  maintenanceMessage: string;
 }
 
-type TabId = 'brand' | 'contact' | 'payment' | 'social' | 'promotions' | 'legal' | 'seo';
+type TabId =
+  | 'brand'
+  | 'contact'
+  | 'payment'
+  | 'social'
+  | 'promotions'
+  | 'legal'
+  | 'seo'
+  | 'maintenance';
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'brand', label: 'Brand', icon: <FiTag size={16} /> },
@@ -49,6 +62,7 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'promotions', label: 'Promotions', icon: <FiBell size={16} /> },
   { id: 'legal', label: 'Legal', icon: <FiFileText size={16} /> },
   { id: 'seo', label: 'SEO', icon: <FiSearch size={16} /> },
+  { id: 'maintenance', label: 'Maintenance', icon: <FiTool size={16} /> },
 ];
 
 const inputCls =
@@ -79,7 +93,10 @@ export default function AdminSettings() {
     legalFaq: '',
     seoDescription: '',
     seoKeywords: '',
+    maintenanceMode: false,
+    maintenanceMessage: '',
   });
+  const [savingMaintenance, setSavingMaintenance] = useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -105,14 +122,20 @@ export default function AdminSettings() {
         legalFaq: settings.legalFaq || '',
         seoDescription: settings.seoDescription || '',
         seoKeywords: settings.seoKeywords || '',
+        maintenanceMode: settings.maintenanceMode === true,
+        maintenanceMessage: settings.maintenanceMessage || '',
       });
     }
   }, [settings]);
 
   const handleSave = async () => {
     try {
+      // Maintenance fields are saved only via the password-gated
+      // section below, so strip them from the general save payload.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { maintenanceMode, maintenanceMessage, ...rest } = form;
       const payload = {
-        ...form,
+        ...rest,
         saleEndsAt: form.saleEndsAt ? new Date(form.saleEndsAt).toISOString() : '',
       };
       await updateSettings(payload);
@@ -121,6 +144,43 @@ export default function AdminSettings() {
       console.error(e);
       toast.error('Failed to save settings');
     }
+  };
+
+  const handleSaveMaintenance = async () => {
+    const action = form.maintenanceMode ? 'turn maintenance mode ON' : 'turn maintenance mode OFF';
+    const entered = window.prompt(
+      `Enter the admin verification password to ${action} (and update the message).\nThis password is editable only directly in Firestore at settings/site.adminVerifyPassword.`,
+    );
+    if (entered === null) return;
+
+    setSavingMaintenance(true);
+    try {
+      const settingsSnap = await getDoc(doc(db, 'settings', 'site'));
+      const stored = settingsSnap.exists()
+        ? ((settingsSnap.data() as Record<string, unknown>).adminVerifyPassword as string | undefined)
+        : undefined;
+      if (!stored) {
+        toast.error(
+          'Admin verification password is not set. Add it directly in Firestore at settings/site.adminVerifyPassword.',
+        );
+        return;
+      }
+      if (entered !== stored) {
+        toast.error('Incorrect verification password');
+        return;
+      }
+      await updateSettings({
+        maintenanceMode: form.maintenanceMode,
+        maintenanceMessage: form.maintenanceMessage,
+      });
+      toast.success(
+        form.maintenanceMode ? 'Maintenance mode is now ON' : 'Maintenance mode is now OFF',
+      );
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to update maintenance mode');
+    }
+    setSavingMaintenance(false);
   };
 
   const setField = (field: keyof SettingsForm, value: string | boolean) =>
@@ -401,14 +461,76 @@ export default function AdminSettings() {
           </div>
         )}
 
+        {tab === 'maintenance' && (
+          <div className="space-y-4">
+            <h2 className="text-white font-semibold">Maintenance mode</h2>
+            <p className="text-gray-400 text-xs leading-relaxed">
+              When enabled, only admins can use the site. Everyone else sees the &ldquo;We&apos;ll be right back&rdquo;
+              page. Saving any change here requires the admin verification password stored in Firestore at
+              <code className="text-gray-300"> settings/site.adminVerifyPassword</code>.
+            </p>
+
+            <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+              <div>
+                <p className="text-white font-medium">Maintenance mode</p>
+                <p className="text-gray-400 text-sm">
+                  {form.maintenanceMode
+                    ? 'Currently ON \u2014 storefront is hidden from non-admins.'
+                    : 'Currently OFF \u2014 the site is live for everyone.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setField('maintenanceMode', !form.maintenanceMode)}
+                aria-pressed={form.maintenanceMode}
+                className={`relative inline-flex w-11 h-6 rounded-full transition-colors duration-200 flex-shrink-0 ${
+                  form.maintenanceMode ? 'bg-amber-500' : 'bg-white/20'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${
+                    form.maintenanceMode ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div>
+              <label htmlFor="maintenanceMessage" className="block text-gray-400 text-xs mb-1">
+                Maintenance message (optional)
+              </label>
+              <textarea
+                id="maintenanceMessage"
+                value={form.maintenanceMessage}
+                onChange={e => setField('maintenanceMessage', e.target.value)}
+                className={`${inputCls} min-h-[110px]`}
+                placeholder="We are working on something better behind the scenes. Be back shortly."
+              />
+              <p className="text-gray-500 text-xs mt-1">
+                Shown on the maintenance screen. Leave blank to use the default copy.
+              </p>
+            </div>
+
+            <button
+              onClick={handleSaveMaintenance}
+              disabled={savingMaintenance}
+              className="flex items-center gap-2 bg-amber-500 hover:bg-amber-500/90 text-black px-5 py-2.5 rounded-xl transition font-semibold disabled:opacity-50"
+            >
+              <FiSave /> {savingMaintenance ? 'Saving\u2026' : 'Save maintenance settings'}
+            </button>
+          </div>
+        )}
+
       </div>
 
-      <button
-        onClick={handleSave}
-        className="mt-6 flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-6 py-3 rounded-xl transition font-semibold btn-shine"
-      >
-        <FiSave /> Save Settings
-      </button>
+      {tab !== 'maintenance' && (
+        <button
+          onClick={handleSave}
+          className="mt-6 flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-6 py-3 rounded-xl transition font-semibold btn-shine"
+        >
+          <FiSave /> Save Settings
+        </button>
+      )}
     </div>
   );
 }
