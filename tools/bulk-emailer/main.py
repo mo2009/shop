@@ -18,6 +18,7 @@ import customtkinter as ctk
 from tkcalendar import DateEntry
 
 import storage
+from auto_mode import build_envelopes, describe_envelopes
 from excel_import import EMAIL_REGEX, extract_emails
 from sender import (
     EmailJob,
@@ -28,7 +29,13 @@ from sender import (
 )
 
 APP_TITLE = "Outlook Bulk Emailer"
-APP_VERSION = "1.0.0"
+APP_VERSION = "2.0.0"
+
+SEND_MODES = [
+    ("individual", "Individual"),
+    ("cc", "Single CC"),
+    ("auto", "Auto (group by company)"),
+]
 
 
 def _parse_recipients(raw: str) -> list[str]:
@@ -44,12 +51,101 @@ def _parse_recipients(raw: str) -> list[str]:
     return ordered
 
 
+class PresetDialog(ctk.CTkToplevel):
+    """Modal dialog used by the '+ New' buttons for subjects and bodies."""
+
+    def __init__(
+        self,
+        parent: ctk.CTk,
+        title: str,
+        prompt: str,
+        multiline: bool,
+        initial: str = "",
+    ) -> None:
+        super().__init__(parent)
+        self.title(title)
+        self.geometry("520x320" if multiline else "520x160")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.result: str | None = None
+
+        ctk.CTkLabel(
+            self,
+            text=prompt,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w", padx=16, pady=(14, 6))
+
+        if multiline:
+            self.text_widget = ctk.CTkTextbox(self, height=180)
+            self.text_widget.pack(fill="both", expand=True, padx=16, pady=(0, 10))
+            self.text_widget.insert("1.0", initial)
+            self.text_widget.focus_set()
+        else:
+            self.var = ctk.StringVar(value=initial)
+            entry = ctk.CTkEntry(self, textvariable=self.var)
+            entry.pack(fill="x", padx=16, pady=(0, 10))
+            entry.focus_set()
+            entry.bind("<Return>", lambda _e: self._on_save())
+
+        self._multiline = multiline
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.pack(fill="x", padx=16, pady=(0, 14))
+        ctk.CTkButton(bar, text="Save", command=self._on_save, width=110).pack(
+            side="right", padx=(6, 0)
+        )
+        ctk.CTkButton(
+            bar,
+            text="Cancel",
+            command=self._on_cancel,
+            width=110,
+            fg_color="transparent",
+            border_width=1,
+        ).pack(side="right")
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+        self.after(50, self._grab)
+
+    def _grab(self) -> None:
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+
+    def _on_save(self) -> None:
+        if self._multiline:
+            value = self.text_widget.get("1.0", "end").rstrip()
+        else:
+            value = self.var.get().strip()
+        if not value:
+            messagebox.showwarning("Empty", "Please enter a value.", parent=self)
+            return
+        self.result = value
+        self.destroy()
+
+    def _on_cancel(self) -> None:
+        self.result = None
+        self.destroy()
+
+    @classmethod
+    def ask(
+        cls,
+        parent: ctk.CTk,
+        title: str,
+        prompt: str,
+        multiline: bool,
+        initial: str = "",
+    ) -> str | None:
+        dialog = cls(parent, title, prompt, multiline, initial)
+        parent.wait_window(dialog)
+        return dialog.result
+
+
 class BulkEmailerApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
         self.title(f"{APP_TITLE} v{APP_VERSION}")
-        self.geometry("900x780")
-        self.minsize(820, 720)
+        self.geometry("980x820")
+        self.minsize(900, 720)
 
         self.state_data = storage.load()
         settings = self.state_data["settings"]
@@ -60,6 +156,7 @@ class BulkEmailerApp(ctk.CTk):
         self._sending_lock = threading.Lock()
         self._attachments: list[str] = []
         self._outlook_accounts: list[OutlookAccount] = []
+        self._mode_buttons: dict[str, ctk.CTkButton] = {}
 
         self._build_ui()
         self._apply_initial_settings()
@@ -72,7 +169,7 @@ class BulkEmailerApp(ctk.CTk):
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
         outer = ctk.CTkFrame(self, fg_color="transparent")
-        outer.pack(fill="both", expand=True, padx=12, pady=12)
+        outer.pack(fill="both", expand=True, padx=14, pady=14)
 
         self._build_header(outer)
 
@@ -81,6 +178,7 @@ class BulkEmailerApp(ctk.CTk):
 
         self._build_sender_section(scrollable)
         self._build_recipients_section(scrollable)
+        self._build_priority_section(scrollable)
         self._build_subject_section(scrollable)
         self._build_body_section(scrollable)
         self._build_attachments_section(scrollable)
@@ -91,11 +189,19 @@ class BulkEmailerApp(ctk.CTk):
     def _build_header(self, parent: ctk.CTkFrame) -> None:
         header = ctk.CTkFrame(parent, fg_color="transparent")
         header.pack(fill="x")
+        title_block = ctk.CTkFrame(header, fg_color="transparent")
+        title_block.pack(side="left")
         ctk.CTkLabel(
-            header,
+            title_block,
             text=APP_TITLE,
-            font=ctk.CTkFont(size=22, weight="bold"),
-        ).pack(side="left")
+            font=ctk.CTkFont(size=24, weight="bold"),
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            title_block,
+            text=f"v{APP_VERSION} · sends through your local Outlook desktop",
+            text_color=("gray40", "gray70"),
+            font=ctk.CTkFont(size=12),
+        ).pack(anchor="w")
 
         right = ctk.CTkFrame(header, fg_color="transparent")
         right.pack(side="right")
@@ -110,36 +216,41 @@ class BulkEmailerApp(ctk.CTk):
         )
         theme_menu.pack(side="left")
 
-    def _section(self, parent: ctk.CTkFrame, title: str) -> ctk.CTkFrame:
+    def _section(self, parent: ctk.CTkFrame, title: str, *, hint: str = "") -> ctk.CTkFrame:
         wrapper = ctk.CTkFrame(parent)
         wrapper.pack(fill="x", pady=6, padx=2)
         ctk.CTkLabel(
             wrapper,
             text=title,
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).pack(anchor="w", padx=12, pady=(10, 4))
+            font=ctk.CTkFont(size=15, weight="bold"),
+        ).pack(anchor="w", padx=14, pady=(12, 2))
+        if hint:
+            ctk.CTkLabel(
+                wrapper,
+                text=hint,
+                text_color=("gray40", "gray70"),
+                wraplength=900,
+                justify="left",
+                font=ctk.CTkFont(size=12),
+            ).pack(anchor="w", padx=14)
         body = ctk.CTkFrame(wrapper, fg_color="transparent")
-        body.pack(fill="x", padx=12, pady=(0, 12))
+        body.pack(fill="x", padx=14, pady=(8, 12))
         return body
 
     # -- Sender (Outlook account) ------------------------------------
     def _build_sender_section(self, parent: ctk.CTkFrame) -> None:
-        body = self._section(parent, "1. Sending account")
-
-        ctk.CTkLabel(
-            body,
-            text=(
-                "The program sends through your locally-installed Outlook desktop "
-                "app, so no password is needed. Pick which Outlook account to send "
-                "from (use Default to use whichever account Outlook is set to)."
+        body = self._section(
+            parent,
+            "1. Sending account",
+            hint=(
+                "Sends through your locally-installed Outlook. No password "
+                "required. Pick which Outlook account to send from, or leave "
+                "on Default to use whichever account Outlook itself is set to."
             ),
-            text_color=("gray40", "gray70"),
-            wraplength=820,
-            justify="left",
-        ).pack(anchor="w")
+        )
 
         row = ctk.CTkFrame(body, fg_color="transparent")
-        row.pack(fill="x", pady=(8, 0))
+        row.pack(fill="x")
         ctk.CTkLabel(row, text="From account:").pack(side="left", padx=(0, 6))
         self.account_combo = ttk.Combobox(row, values=["Default"], state="readonly", width=60)
         self.account_combo.pack(side="left", fill="x", expand=True)
@@ -188,21 +299,19 @@ class BulkEmailerApp(ctk.CTk):
 
     # -- Recipients ---------------------------------------------------
     def _build_recipients_section(self, parent: ctk.CTkFrame) -> None:
-        body = self._section(parent, "2. Recipients")
-
-        ctk.CTkLabel(
-            body,
-            text=(
-                "Paste email addresses separated by comma, semicolon, space, "
-                "or new line. You can also import them from an Excel file."
+        body = self._section(
+            parent,
+            "2. Recipients & send mode",
+            hint=(
+                "Paste email addresses (any separator) or import them from an "
+                "Excel file. Pick how the program should send them."
             ),
-            text_color=("gray40", "gray70"),
-            wraplength=820,
-            justify="left",
-        ).pack(anchor="w")
+        )
 
         self.recipients_text = ctk.CTkTextbox(body, height=110)
-        self.recipients_text.pack(fill="x", pady=(6, 6))
+        self.recipients_text.pack(fill="x", pady=(0, 6))
+        self.recipients_text.bind("<<Modified>>", self._on_recipients_modified)
+        self.recipients_text.bind("<KeyRelease>", lambda _e: self._refresh_recipient_count())
 
         controls = ctk.CTkFrame(body, fg_color="transparent")
         controls.pack(fill="x")
@@ -220,25 +329,86 @@ class BulkEmailerApp(ctk.CTk):
             fg_color="transparent",
             border_width=1,
         ).pack(side="left")
+        ctk.CTkButton(
+            controls,
+            text="Clear",
+            command=self._on_clear_recipients,
+            fg_color="transparent",
+            border_width=1,
+        ).pack(side="left", padx=6)
 
+        # Send mode as segmented buttons.
         mode_row = ctk.CTkFrame(body, fg_color="transparent")
-        mode_row.pack(fill="x", pady=(8, 0))
-        ctk.CTkLabel(mode_row, text="Send mode:").pack(side="left", padx=(0, 8))
-        self.send_mode_var = ctk.StringVar(
-            value=self.state_data["settings"].get("send_mode", "individual")
+        mode_row.pack(fill="x", pady=(12, 0))
+        ctk.CTkLabel(mode_row, text="Send mode:").pack(side="left", padx=(0, 10))
+
+        initial_mode = self.state_data["settings"].get("send_mode", "individual")
+        if initial_mode not in {key for key, _ in SEND_MODES}:
+            initial_mode = "individual"
+        self.send_mode_var = ctk.StringVar(value=initial_mode)
+        for key, label in SEND_MODES:
+            btn = ctk.CTkButton(
+                mode_row,
+                text=label,
+                width=200,
+                command=lambda k=key: self._set_mode(k),
+            )
+            btn.pack(side="left", padx=4)
+            self._mode_buttons[key] = btn
+
+        self.mode_hint_label = ctk.CTkLabel(
+            body,
+            text="",
+            text_color=("gray35", "gray70"),
+            wraplength=900,
+            justify="left",
+            font=ctk.CTkFont(size=12),
         )
-        ctk.CTkRadioButton(
-            mode_row,
-            text="Individual (one email per recipient — recipients do NOT see each other)",
-            variable=self.send_mode_var,
-            value="individual",
-        ).pack(side="left", padx=(0, 16))
-        ctk.CTkRadioButton(
-            mode_row,
-            text="Single email with everyone in CC",
-            variable=self.send_mode_var,
-            value="cc",
-        ).pack(side="left")
+        self.mode_hint_label.pack(anchor="w", pady=(8, 0))
+
+        self._set_mode(initial_mode)
+
+    def _set_mode(self, mode: str) -> None:
+        self.send_mode_var.set(mode)
+        for key, button in self._mode_buttons.items():
+            if key == mode:
+                button.configure(
+                    fg_color=("#1f6aa5", "#1f6aa5"),
+                    text_color="white",
+                )
+            else:
+                button.configure(
+                    fg_color="transparent",
+                    text_color=("gray20", "gray85"),
+                    border_width=1,
+                )
+        hints = {
+            "individual": (
+                "One email per recipient. Recipients will NOT see each other "
+                "(recommended for marketing)."
+            ),
+            "cc": (
+                "ONE email — first recipient goes in 'To', everyone else in "
+                "CC. All recipients see each other."
+            ),
+            "auto": (
+                "Group recipients by company (the part after @). For each "
+                "company, the priority address (e.g. purchasing@…) goes in "
+                "'To' and the rest go in CC. Singletons and personal mail "
+                "domains are sent individually."
+            ),
+        }
+        self.mode_hint_label.configure(text=hints.get(mode, ""))
+        self._refresh_priority_section_visibility()
+        self._refresh_preview()
+
+    def _on_recipients_modified(self, _event: object) -> None:
+        try:
+            self.recipients_text.edit_modified(False)
+        except tk.TclError:
+            return
+        self._refresh_recipient_count()
+        self._refresh_preview()
 
     def _on_import_excel(self) -> None:
         path = filedialog.askopenfilename(
@@ -261,15 +431,188 @@ class BulkEmailerApp(ctk.CTk):
         self.recipients_text.delete("1.0", "end")
         self.recipients_text.insert("1.0", merged)
         self._refresh_recipient_count()
+        self._refresh_preview()
         self._log(f"Imported {len(emails)} email address(es) from {path}")
+
+    def _on_clear_recipients(self) -> None:
+        self.recipients_text.delete("1.0", "end")
+        self._refresh_recipient_count()
+        self._refresh_preview()
 
     def _refresh_recipient_count(self) -> None:
         emails = _parse_recipients(self.recipients_text.get("1.0", "end"))
         self.recipient_count_label.configure(text=f"{len(emails)} recipient(s)")
 
+    # -- Priority keywords + Auto preview ----------------------------
+    def _build_priority_section(self, parent: ctk.CTkFrame) -> None:
+        self.priority_section_wrapper = ctk.CTkFrame(parent)
+        self.priority_section_wrapper.pack(fill="x", pady=6, padx=2)
+        ctk.CTkLabel(
+            self.priority_section_wrapper,
+            text="2b. Priority keywords (Auto mode)",
+            font=ctk.CTkFont(size=15, weight="bold"),
+        ).pack(anchor="w", padx=14, pady=(12, 2))
+        ctk.CTkLabel(
+            self.priority_section_wrapper,
+            text=(
+                "When grouping by company in Auto mode, an address whose local "
+                "part starts with one of these keywords (case-insensitive) goes "
+                "in the 'To' field. The rest of the company group goes in CC. "
+                "Order matters: earlier keywords win over later ones."
+            ),
+            text_color=("gray40", "gray70"),
+            wraplength=900,
+            justify="left",
+            font=ctk.CTkFont(size=12),
+        ).pack(anchor="w", padx=14)
+
+        body = ctk.CTkFrame(self.priority_section_wrapper, fg_color="transparent")
+        body.pack(fill="x", padx=14, pady=(8, 12))
+
+        chips_row_outer = ctk.CTkFrame(body, fg_color="transparent")
+        chips_row_outer.pack(fill="x")
+        ctk.CTkLabel(chips_row_outer, text="Keywords:").pack(side="left", padx=(0, 6))
+        self.keyword_chips_frame = ctk.CTkFrame(chips_row_outer, fg_color="transparent")
+        self.keyword_chips_frame.pack(side="left", fill="x", expand=True)
+
+        add_row = ctk.CTkFrame(body, fg_color="transparent")
+        add_row.pack(fill="x", pady=(8, 0))
+        ctk.CTkLabel(add_row, text="Add keyword:").pack(side="left", padx=(0, 6))
+        self.new_keyword_var = ctk.StringVar()
+        entry = ctk.CTkEntry(add_row, textvariable=self.new_keyword_var, width=200)
+        entry.pack(side="left")
+        entry.bind("<Return>", lambda _e: self._on_add_keyword())
+        ctk.CTkButton(
+            add_row,
+            text="+ Add",
+            command=self._on_add_keyword,
+            width=80,
+        ).pack(side="left", padx=6)
+        ctk.CTkButton(
+            add_row,
+            text="Reset to defaults",
+            command=self._on_reset_keywords,
+            width=140,
+            fg_color="transparent",
+            border_width=1,
+        ).pack(side="left", padx=6)
+
+        # Live preview pane for Auto mode.
+        preview_label = ctk.CTkLabel(
+            body,
+            text="Auto-mode preview:",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        preview_label.pack(anchor="w", pady=(12, 4))
+        self.auto_preview_text = ctk.CTkTextbox(body, height=140)
+        self.auto_preview_text.pack(fill="x")
+        self.auto_preview_text.configure(state="disabled")
+
+        self._render_keyword_chips()
+
+    def _refresh_priority_section_visibility(self) -> None:
+        if not hasattr(self, "priority_section_wrapper"):
+            return
+        if self.send_mode_var.get() == "auto":
+            self.priority_section_wrapper.pack(fill="x", pady=6, padx=2)
+        else:
+            self.priority_section_wrapper.pack_forget()
+
+    def _render_keyword_chips(self) -> None:
+        for child in self.keyword_chips_frame.winfo_children():
+            child.destroy()
+        keywords = self.state_data.get("priority_keywords", [])
+        if not keywords:
+            ctk.CTkLabel(
+                self.keyword_chips_frame,
+                text="(none — Auto mode will fall back to individual sends)",
+                text_color=("gray40", "gray70"),
+            ).pack(side="left")
+            return
+        for index, keyword in enumerate(keywords):
+            chip = ctk.CTkFrame(
+                self.keyword_chips_frame,
+                fg_color=("gray85", "gray25"),
+                corner_radius=12,
+            )
+            chip.pack(side="left", padx=3, pady=2)
+            ctk.CTkLabel(
+                chip,
+                text=f"{index + 1}. {keyword}",
+                padx=4,
+            ).pack(side="left", padx=(8, 2), pady=2)
+            ctk.CTkButton(
+                chip,
+                text="✕",
+                width=24,
+                height=22,
+                fg_color="transparent",
+                hover_color=("gray70", "gray35"),
+                command=lambda k=keyword: self._on_remove_keyword(k),
+            ).pack(side="left", padx=(0, 4), pady=2)
+
+    def _on_add_keyword(self) -> None:
+        value = self.new_keyword_var.get().strip()
+        if not value:
+            return
+        # Strip an "@" suffix if the user typed e.g. "purchasing@".
+        value = value.rstrip("@").strip()
+        if not value:
+            return
+        existing_lc = {k.lower() for k in self.state_data.get("priority_keywords", [])}
+        if value.lower() in existing_lc:
+            messagebox.showinfo("Already added", f"'{value}' is already in the list.")
+            return
+        self.state_data.setdefault("priority_keywords", []).append(value)
+        storage.save(self.state_data)
+        self.new_keyword_var.set("")
+        self._render_keyword_chips()
+        self._refresh_preview()
+        self._log(f"Added priority keyword: {value}")
+
+    def _on_remove_keyword(self, keyword: str) -> None:
+        keywords = self.state_data.get("priority_keywords", [])
+        if keyword in keywords:
+            keywords.remove(keyword)
+            storage.save(self.state_data)
+            self._render_keyword_chips()
+            self._refresh_preview()
+            self._log(f"Removed priority keyword: {keyword}")
+
+    def _on_reset_keywords(self) -> None:
+        if not messagebox.askyesno(
+            "Reset keywords",
+            "Reset the priority keyword list to the defaults "
+            f"({', '.join(storage.DEFAULT_PRIORITY_KEYWORDS)})?",
+        ):
+            return
+        self.state_data["priority_keywords"] = list(storage.DEFAULT_PRIORITY_KEYWORDS)
+        storage.save(self.state_data)
+        self._render_keyword_chips()
+        self._refresh_preview()
+
+    def _refresh_preview(self) -> None:
+        if not hasattr(self, "auto_preview_text"):
+            return
+        recipients = _parse_recipients(self.recipients_text.get("1.0", "end"))
+        envelopes = build_envelopes(
+            recipients,
+            "auto",
+            self.state_data.get("priority_keywords", []),
+        )
+        text = describe_envelopes(envelopes) if recipients else "(no recipients)"
+        self.auto_preview_text.configure(state="normal")
+        self.auto_preview_text.delete("1.0", "end")
+        self.auto_preview_text.insert("1.0", text)
+        self.auto_preview_text.configure(state="disabled")
+
     # -- Subject ------------------------------------------------------
     def _build_subject_section(self, parent: ctk.CTkFrame) -> None:
-        body = self._section(parent, "3. Subject")
+        body = self._section(
+            parent,
+            "3. Subject",
+            hint="Pick a saved subject from the list, or click '+ New' to add one.",
+        )
 
         row = ctk.CTkFrame(body, fg_color="transparent")
         row.pack(fill="x")
@@ -285,13 +628,17 @@ class BulkEmailerApp(ctk.CTk):
         self.subject_combo.bind("<<ComboboxSelected>>", self._on_subject_preset_pick)
 
         ctk.CTkButton(
-            row, text="Save current as preset", command=self._save_subject_preset, width=170
-        ).pack(side="left", padx=6)
+            row, text="+ New", command=self._new_subject_preset, width=80
+        ).pack(side="left", padx=(6, 4))
+        ctk.CTkButton(
+            row, text="Save edits", command=self._save_subject_preset, width=100,
+            fg_color="transparent", border_width=1,
+        ).pack(side="left", padx=(0, 4))
         ctk.CTkButton(
             row,
-            text="Delete preset",
+            text="Delete",
             command=self._delete_subject_preset,
-            width=120,
+            width=80,
             fg_color="transparent",
             border_width=1,
         ).pack(side="left")
@@ -304,10 +651,30 @@ class BulkEmailerApp(ctk.CTk):
         if value:
             self.subject_var.set(value)
 
+    def _new_subject_preset(self) -> None:
+        value = PresetDialog.ask(
+            self,
+            title="New subject preset",
+            prompt="Subject:",
+            multiline=False,
+            initial=self.subject_var.get(),
+        )
+        if not value:
+            return
+        if value in self.state_data["subjects"]:
+            messagebox.showinfo("Already saved", "That subject is already in the list.")
+        else:
+            self.state_data["subjects"].append(value)
+            storage.save(self.state_data)
+            self.subject_combo.configure(values=self.state_data["subjects"])
+            self._log(f"Added subject preset: {value}")
+        self.subject_combo.set(value)
+        self.subject_var.set(value)
+
     def _save_subject_preset(self) -> None:
         value = self.subject_var.get().strip()
         if not value:
-            messagebox.showwarning("Empty subject", "Type the subject first, then save it as a preset.")
+            messagebox.showwarning("Empty subject", "Type the subject first.")
             return
         if value in self.state_data["subjects"]:
             messagebox.showinfo("Already saved", "That subject is already in the preset list.")
@@ -333,7 +700,11 @@ class BulkEmailerApp(ctk.CTk):
 
     # -- Body ---------------------------------------------------------
     def _build_body_section(self, parent: ctk.CTkFrame) -> None:
-        body = self._section(parent, "4. Body")
+        body = self._section(
+            parent,
+            "4. Body",
+            hint="Pick a saved body from the list, or click '+ New' to add one.",
+        )
 
         row = ctk.CTkFrame(body, fg_color="transparent")
         row.pack(fill="x")
@@ -349,13 +720,17 @@ class BulkEmailerApp(ctk.CTk):
         self.body_combo.bind("<<ComboboxSelected>>", self._on_body_preset_pick)
 
         ctk.CTkButton(
-            row, text="Save current as preset", command=self._save_body_preset, width=170
-        ).pack(side="left", padx=6)
+            row, text="+ New", command=self._new_body_preset, width=80
+        ).pack(side="left", padx=(6, 4))
+        ctk.CTkButton(
+            row, text="Save edits", command=self._save_body_preset, width=100,
+            fg_color="transparent", border_width=1,
+        ).pack(side="left", padx=(0, 4))
         ctk.CTkButton(
             row,
-            text="Delete preset",
+            text="Delete",
             command=self._delete_body_preset,
-            width=120,
+            width=80,
             fg_color="transparent",
             border_width=1,
         ).pack(side="left")
@@ -379,10 +754,32 @@ class BulkEmailerApp(ctk.CTk):
         self.body_text.delete("1.0", "end")
         self.body_text.insert("1.0", body)
 
-    def _save_body_preset(self) -> None:
-        value = self.body_text.get("1.0", "end").strip()
+    def _new_body_preset(self) -> None:
+        existing = self.body_text.get("1.0", "end").rstrip()
+        value = PresetDialog.ask(
+            self,
+            title="New body preset",
+            prompt="Body:",
+            multiline=True,
+            initial=existing,
+        )
         if not value:
-            messagebox.showwarning("Empty body", "Write the body first, then save it as a preset.")
+            return
+        if value in self.state_data["bodies"]:
+            messagebox.showinfo("Already saved", "That body is already in the list.")
+        else:
+            self.state_data["bodies"].append(value)
+            storage.save(self.state_data)
+            self.body_combo.configure(values=self._body_preview_values())
+            self._log("Added body preset")
+        self.body_combo.set(self._preview(value))
+        self.body_text.delete("1.0", "end")
+        self.body_text.insert("1.0", value)
+
+    def _save_body_preset(self) -> None:
+        value = self.body_text.get("1.0", "end").rstrip()
+        if not value:
+            messagebox.showwarning("Empty body", "Write the body first.")
             return
         if value in self.state_data["bodies"]:
             messagebox.showinfo("Already saved", "That body is already in the preset list.")
@@ -447,7 +844,15 @@ class BulkEmailerApp(ctk.CTk):
 
     # -- Schedule -----------------------------------------------------
     def _build_schedule_section(self, parent: ctk.CTkFrame) -> None:
-        body = self._section(parent, "6. Schedule")
+        body = self._section(
+            parent,
+            "6. Schedule",
+            hint=(
+                "Outlook itself releases scheduled messages from its Outbox "
+                "at the chosen time, so you can close this program afterwards "
+                "— but Outlook must be running on this PC at that moment."
+            ),
+        )
 
         self.schedule_mode_var = ctk.StringVar(value="now")
         ctk.CTkRadioButton(
@@ -504,18 +909,6 @@ class BulkEmailerApp(ctk.CTk):
         )
         self.minute_spin.pack(side="left")
 
-        ctk.CTkLabel(
-            body,
-            text=(
-                "Note: Outlook itself releases scheduled mail from the Outbox at the "
-                "chosen time, so you can close this program afterwards — but Outlook "
-                "must be running on this PC at that time."
-            ),
-            text_color=("gray40", "gray70"),
-            wraplength=820,
-            justify="left",
-        ).pack(anchor="w", pady=(8, 0))
-
         self._update_schedule_state()
 
     def _update_schedule_state(self) -> None:
@@ -530,19 +923,25 @@ class BulkEmailerApp(ctk.CTk):
 
     # -- Actions ------------------------------------------------------
     def _build_actions_section(self, parent: ctk.CTkFrame) -> None:
-        bar = ctk.CTkFrame(parent, fg_color="transparent")
-        bar.pack(fill="x", pady=(8, 0))
+        bar = ctk.CTkFrame(parent)
+        bar.pack(fill="x", pady=(10, 0))
 
         self.send_button = ctk.CTkButton(
             bar,
             text="Send",
             command=self._on_send_clicked,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=40,
+            font=ctk.CTkFont(size=16, weight="bold"),
+            height=46,
+            width=180,
         )
-        self.send_button.pack(side="left")
+        self.send_button.pack(side="left", padx=12, pady=10)
 
-        self.status_label = ctk.CTkLabel(bar, text="Idle", text_color=("gray30", "gray70"))
+        self.status_label = ctk.CTkLabel(
+            bar,
+            text="Idle",
+            text_color=("gray30", "gray70"),
+            font=ctk.CTkFont(size=13),
+        )
         self.status_label.pack(side="left", padx=12)
 
     # -- Log ----------------------------------------------------------
@@ -570,6 +969,7 @@ class BulkEmailerApp(ctk.CTk):
             self.body_text.delete("1.0", "end")
             self.body_text.insert("1.0", self.state_data["bodies"][0])
         self._refresh_recipient_count()
+        self._refresh_preview()
 
     def _on_theme_change(self, value: str) -> None:
         ctk.set_appearance_mode(value)
@@ -613,13 +1013,22 @@ class BulkEmailerApp(ctk.CTk):
             if scheduled <= dt.datetime.now():
                 raise ValueError("The scheduled time is in the past.")
 
+        mode = self.send_mode_var.get()
+        envelopes = build_envelopes(
+            recipients,
+            mode,
+            self.state_data.get("priority_keywords", []),
+        )
+        if not envelopes:
+            raise ValueError("Could not build any messages from the recipient list.")
+
         job = EmailJob(
-            recipients=recipients,
+            envelopes=envelopes,
             subject=subject,
             body=body_text,
             attachments=list(self._attachments),
-            mode=self.send_mode_var.get(),
             account_smtp=self._selected_account_smtp(),
+            mode_label=mode,
         )
         return job, scheduled
 
@@ -636,15 +1045,20 @@ class BulkEmailerApp(ctk.CTk):
         if not self._sending_lock.acquire(blocking=False):
             return
         self.send_button.configure(state="disabled")
+        envelope_count = len(job.envelopes)
         if scheduled:
-            self.status_label.configure(text=f"Queueing for {scheduled:%Y-%m-%d %H:%M}…")
+            self.status_label.configure(
+                text=f"Queueing {envelope_count} message(s) for {scheduled:%Y-%m-%d %H:%M}…"
+            )
             self._log(
-                f"Queueing {len(job.recipients)} message(s) with deferred delivery "
-                f"for {scheduled:%Y-%m-%d %H:%M} (mode={job.mode})"
+                f"Queueing {envelope_count} message(s) with deferred delivery "
+                f"for {scheduled:%Y-%m-%d %H:%M} (mode={job.mode_label})"
             )
         else:
-            self.status_label.configure(text="Sending…")
-            self._log(f"Sending to {len(job.recipients)} recipient(s) (mode={job.mode})")
+            self.status_label.configure(text=f"Sending {envelope_count} message(s)…")
+            self._log(
+                f"Sending {envelope_count} message(s) (mode={job.mode_label})"
+            )
 
         thread = threading.Thread(
             target=self._do_send, args=(job, scheduled), daemon=True
@@ -660,7 +1074,7 @@ class BulkEmailerApp(ctk.CTk):
             )
             self.after(0, self._on_send_finished, sent, failed, scheduled, None)
         except Exception as exc:  # pragma: no cover - GUI path
-            self.after(0, self._on_send_finished, 0, len(job.recipients), scheduled, exc)
+            self.after(0, self._on_send_finished, 0, len(job.envelopes), scheduled, exc)
         finally:
             self._sending_lock.release()
 
@@ -699,7 +1113,10 @@ class BulkEmailerApp(ctk.CTk):
         if failed:
             messagebox.showwarning("Some failed", f"Sent {sent}, failed {failed}. See the log.")
         else:
-            messagebox.showinfo("Done", f"Sent {sent} email(s).")
+            messagebox.showinfo(
+                "Done",
+                f"Sent {sent} email(s). They should appear in Outlook's Sent Items shortly.",
+            )
 
     # ------------------------------------------------------------------
     # Util

@@ -33,6 +33,12 @@ DEFAULT_BODIES = [
     ),
 ]
 
+# Default priority keywords used by Auto send mode to decide which email
+# in a company group goes in "To" (vs. CC). Match is case-insensitive
+# and starts-with, so e.g. ``purchasing`` matches ``purchasing@acme.com``,
+# ``purchasing-eu@acme.com``, ``purchasing.team@acme.com``.
+DEFAULT_PRIORITY_KEYWORDS = ["purchasing", "operation", "ops"]
+
 
 def _data_dir() -> Path:
     path = Path.home() / ".bulk_emailer"
@@ -61,6 +67,8 @@ def load() -> dict[str, Any]:
         merged["subjects"] = list(DEFAULT_SUBJECTS)
     if not isinstance(merged.get("bodies"), list):
         merged["bodies"] = list(DEFAULT_BODIES)
+    if not isinstance(merged.get("priority_keywords"), list):
+        merged["priority_keywords"] = list(DEFAULT_PRIORITY_KEYWORDS)
     if not isinstance(merged.get("settings"), dict):
         merged["settings"] = _default_settings()
     return merged
@@ -79,7 +87,7 @@ def _default_settings() -> dict[str, Any]:
     return {
         "account_smtp": "",  # Empty = use Outlook's default account.
         "theme": "system",  # "light" | "dark" | "system"
-        "send_mode": "individual",  # "individual" | "cc"
+        "send_mode": "individual",  # "individual" | "cc" | "auto"
     }
 
 
@@ -87,5 +95,6 @@ def _defaults() -> dict[str, Any]:
     return {
         "subjects": list(DEFAULT_SUBJECTS),
         "bodies": list(DEFAULT_BODIES),
+        "priority_keywords": list(DEFAULT_PRIORITY_KEYWORDS),
         "settings": _default_settings(),
     }

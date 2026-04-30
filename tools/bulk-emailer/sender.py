@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from auto_mode import Envelope
+
 # Outlook MailItem constant (olMailItem == 0).
 _OL_MAIL_ITEM = 0
 
@@ -36,12 +38,12 @@ class OutlookAccount:
 
 @dataclass
 class EmailJob:
-    recipients: list[str]
+    envelopes: list[Envelope]
     subject: str
     body: str
     attachments: list[str] = field(default_factory=list)
-    mode: str = "individual"  # "individual" | "cc"
     account_smtp: str = ""  # Empty = default Outlook account.
+    mode_label: str = "individual"  # purely cosmetic, used in logs
 
 
 ProgressCallback = Callable[[str], None]
@@ -139,8 +141,13 @@ def send(
     Outlook itself releases them at that time. The mail still requires
     Outlook to be running at the scheduled moment to actually leave the
     Outbox.
+
+    For immediate (non-deferred) sends, this also asks Outlook to flush
+    its Outbox (``Session.SendAndReceive``) so the message leaves
+    promptly instead of sitting in the Outbox until the next manual
+    send/receive.
     """
-    if not job.recipients:
+    if not job.envelopes:
         raise ValueError("No recipients provided.")
     if not job.subject.strip():
         raise ValueError("Subject must not be empty.")
@@ -178,55 +185,52 @@ def _send_inner(win32com_client, job, scheduled_time, log):
 
     sent = 0
     failed = 0
+    total = len(job.envelopes)
 
-    def _build_one(to_csv: str, cc_csv: str = ""):
-        mail = outlook.CreateItem(_OL_MAIL_ITEM)
-        mail.Subject = job.subject
-        mail.Body = job.body
-        mail.To = to_csv
-        if cc_csv:
-            mail.CC = cc_csv
-        if sender_account is not None:
-            # SendUsingAccount must be assigned via the underlying property
-            # because pywin32 doesn't expose it as a normal attribute on
-            # some Outlook versions.
-            mail._oleobj_.Invoke(*(64209, 0, 8, 0, sender_account))  # noqa: SLF001
-        _attach_files(mail, job.attachments, log)
-        if scheduled_time is not None:
-            mail.DeferredDeliveryTime = scheduled_time
-        return mail
-
-    if job.mode == "cc":
-        primary = job.recipients[0]
-        cc_list = job.recipients[1:]
-        log(
-            f"Composing one email with {len(cc_list)} address(es) in CC "
-            f"(primary: {primary})"
-        )
-        try:
-            mail = _build_one(primary, "; ".join(cc_list))
-            mail.Send()
-            # CC mode produces a single email regardless of recipient count.
-            sent += 1
+    for index, envelope in enumerate(job.envelopes, start=1):
+        to_csv = "; ".join(envelope.to)
+        cc_csv = "; ".join(envelope.cc)
+        if envelope.cc:
             log(
-                "Handed off to Outlook"
-                + (f" (deferred until {scheduled_time:%Y-%m-%d %H:%M})"
-                   if scheduled_time else "")
+                f"[{index}/{total}] Composing for "
+                f"{to_csv} (cc: {len(envelope.cc)})"
             )
+        else:
+            log(f"[{index}/{total}] Composing for {to_csv}")
+        try:
+            mail = outlook.CreateItem(_OL_MAIL_ITEM)
+            mail.Subject = job.subject
+            mail.Body = job.body
+            mail.To = to_csv
+            if cc_csv:
+                mail.CC = cc_csv
+            if sender_account is not None:
+                # SendUsingAccount must be assigned via the underlying
+                # property because pywin32 doesn't expose it as a normal
+                # attribute on some Outlook versions.
+                mail._oleobj_.Invoke(*(64209, 0, 8, 0, sender_account))  # noqa: SLF001
+            _attach_files(mail, job.attachments, log)
+            if scheduled_time is not None:
+                mail.DeferredDeliveryTime = scheduled_time
+            mail.Send()
+            sent += 1
         except Exception as exc:
             failed += 1
-            log(f"Failed: {exc}")
-    else:
-        for index, recipient in enumerate(job.recipients, start=1):
-            log(f"[{index}/{len(job.recipients)}] Composing for {recipient}")
-            try:
-                mail = _build_one(recipient)
-                mail.Send()
-                sent += 1
-            except Exception as exc:
-                failed += 1
-                log(f"  -> failed: {exc}")
-        if scheduled_time is not None:
-            log(f"All messages queued in Outbox for {scheduled_time:%Y-%m-%d %H:%M}")
+            log(f"  -> failed: {exc}")
+
+    if scheduled_time is not None:
+        log(
+            f"All {sent} message(s) queued in Outbox for "
+            f"{scheduled_time:%Y-%m-%d %H:%M}"
+        )
+    elif sent > 0:
+        # Force Outlook to actually push the Outbox; without this,
+        # immediately-sent COM messages sometimes sit in the Outbox
+        # until the next manual F9 / send-receive cycle.
+        try:
+            namespace.SendAndReceive(False)
+            log("Outbox flushed (SendAndReceive completed)")
+        except Exception as exc:
+            log(f"  -> Outbox flush failed (Outlook may flush on its own): {exc}")
 
     return sent, failed
