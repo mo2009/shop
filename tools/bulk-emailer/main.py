@@ -537,7 +537,10 @@ class BulkEmailerApp(ctk.CTk):
         if not keywords:
             ctk.CTkLabel(
                 self.keyword_chips_frame,
-                text="(none — Auto mode will fall back to individual sends)",
+                text=(
+                    "(none — Auto mode will still group company emails, "
+                    "but the first email in each group becomes 'To')"
+                ),
                 text_color=("gray40", "gray70"),
             ).pack(side="left")
             return
