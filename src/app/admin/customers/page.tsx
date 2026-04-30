@@ -37,8 +37,10 @@ export default function AdminCustomers() {
         const rows = snap.docs.map(d => d.data() as OrderRow);
         const map = new Map<string, Customer>();
         rows.forEach(o => {
-          if (o.hiddenFromAdmin === true) return;
-          // Skip cancelled or rejected orders for spend calculations.
+          // Customers stick around even after the admin clears their orders
+          // from the dashboard view, so we intentionally do NOT skip
+          // hiddenFromAdmin here. We still skip cancelled orders for
+          // spend / order-count purposes.
           if (o.orderStatus === 'cancelled') return;
           const key = o.userId || o.userEmail || '';
           if (!key) return;
@@ -130,7 +132,12 @@ export default function AdminCustomers() {
                   className="border-b border-white/5 hover:bg-white/[0.03] transition"
                 >
                   <td className="py-3 px-4">
-                    <p className="text-white">{c.name}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-white">{c.name}</p>
+                      <span className="inline-flex items-center bg-primary/15 text-primary text-[11px] font-semibold px-2 py-0.5 rounded-full border border-primary/30">
+                        {c.orders} {c.orders === 1 ? 'order' : 'orders'}
+                      </span>
+                    </div>
                     <p className="text-gray-400 text-xs">{c.email}</p>
                   </td>
                   <td className="py-3 px-4 text-right text-white">{c.orders}</td>
