@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { FiPhone, FiMail, FiMapPin } from 'react-icons/fi';
 import { FaFacebook, FaInstagram, FaWhatsapp, FaTiktok } from 'react-icons/fa';
 import { useSettings } from '@/context/SettingsContext';
+import NewsletterForm from './NewsletterForm';
 
 export default function Footer() {
   const { settings, loading } = useSettings();
@@ -20,7 +21,7 @@ export default function Footer() {
   return (
     <footer className="bg-dark-800 border-t border-white/10 mt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
 
           {/* Brand */}
           <div>
@@ -49,6 +50,18 @@ export default function Footer() {
               <Link href="/shop" className="block text-gray-400 hover:text-primary text-sm transition">Shop</Link>
               <Link href="/about" className="block text-gray-400 hover:text-primary text-sm transition">About Us</Link>
               <Link href="/contact" className="block text-gray-400 hover:text-primary text-sm transition">Contact</Link>
+              <Link href="/user/orders" className="block text-gray-400 hover:text-primary text-sm transition">My Orders</Link>
+            </div>
+          </div>
+
+          {/* Legal */}
+          <div>
+            <h3 className="text-white font-semibold mb-4">Legal</h3>
+            <div className="space-y-2">
+              <Link href="/legal/privacy" className="block text-gray-400 hover:text-primary text-sm transition">Privacy Policy</Link>
+              <Link href="/legal/terms" className="block text-gray-400 hover:text-primary text-sm transition">Terms of Service</Link>
+              <Link href="/legal/returns" className="block text-gray-400 hover:text-primary text-sm transition">Returns &amp; Refunds</Link>
+              <Link href="/legal/faq" className="block text-gray-400 hover:text-primary text-sm transition">FAQ</Link>
             </div>
           </div>
 
@@ -111,6 +124,13 @@ export default function Footer() {
             )}
           </div>
 
+        </div>
+
+        <div className="border-t border-white/10 mt-10 pt-8 grid md:grid-cols-2 gap-6 items-start">
+          <div className="max-w-md">
+            <h3 className="text-white font-semibold mb-2">Newsletter</h3>
+            <NewsletterForm />
+          </div>
         </div>
 
         <div className="border-t border-white/10 mt-8 pt-8 text-center">

@@ -9,6 +9,9 @@ import {
   FiMail,
   FiCreditCard,
   FiShare2,
+  FiBell,
+  FiFileText,
+  FiSearch,
 } from 'react-icons/fi';
 import { FaFacebook, FaInstagram, FaWhatsapp, FaTiktok } from 'react-icons/fa';
 
@@ -23,15 +26,29 @@ interface SettingsForm {
   socialWhatsapp: string;
   socialTiktok: string;
   instapayEnabled: boolean;
+  announcementText: string;
+  announcementLink: string;
+  announcementEnabled: boolean;
+  saleEndsAt: string;
+  saleHeadline: string;
+  legalPrivacy: string;
+  legalTerms: string;
+  legalReturns: string;
+  legalFaq: string;
+  seoDescription: string;
+  seoKeywords: string;
 }
 
-type TabId = 'brand' | 'contact' | 'payment' | 'social';
+type TabId = 'brand' | 'contact' | 'payment' | 'social' | 'promotions' | 'legal' | 'seo';
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'brand', label: 'Brand', icon: <FiTag size={16} /> },
   { id: 'contact', label: 'Contact', icon: <FiMail size={16} /> },
   { id: 'payment', label: 'Payment', icon: <FiCreditCard size={16} /> },
   { id: 'social', label: 'Social', icon: <FiShare2 size={16} /> },
+  { id: 'promotions', label: 'Promotions', icon: <FiBell size={16} /> },
+  { id: 'legal', label: 'Legal', icon: <FiFileText size={16} /> },
+  { id: 'seo', label: 'SEO', icon: <FiSearch size={16} /> },
 ];
 
 const inputCls =
@@ -51,6 +68,17 @@ export default function AdminSettings() {
     socialWhatsapp: '',
     socialTiktok: '',
     instapayEnabled: true,
+    announcementText: '',
+    announcementLink: '',
+    announcementEnabled: false,
+    saleEndsAt: '',
+    saleHeadline: '',
+    legalPrivacy: '',
+    legalTerms: '',
+    legalReturns: '',
+    legalFaq: '',
+    seoDescription: '',
+    seoKeywords: '',
   });
 
   useEffect(() => {
@@ -66,13 +94,28 @@ export default function AdminSettings() {
         socialWhatsapp: settings.socialWhatsapp || '',
         socialTiktok: settings.socialTiktok || '',
         instapayEnabled: settings.instapayEnabled ?? true,
+        announcementText: settings.announcementText || '',
+        announcementLink: settings.announcementLink || '',
+        announcementEnabled: !!settings.announcementEnabled,
+        saleEndsAt: settings.saleEndsAt ? settings.saleEndsAt.slice(0, 16) : '',
+        saleHeadline: settings.saleHeadline || '',
+        legalPrivacy: settings.legalPrivacy || '',
+        legalTerms: settings.legalTerms || '',
+        legalReturns: settings.legalReturns || '',
+        legalFaq: settings.legalFaq || '',
+        seoDescription: settings.seoDescription || '',
+        seoKeywords: settings.seoKeywords || '',
       });
     }
   }, [settings]);
 
   const handleSave = async () => {
     try {
-      await updateSettings(form);
+      const payload = {
+        ...form,
+        saleEndsAt: form.saleEndsAt ? new Date(form.saleEndsAt).toISOString() : '',
+      };
+      await updateSettings(payload);
       toast.success('Settings saved');
     } catch (e) {
       console.error(e);
@@ -195,6 +238,140 @@ export default function AdminSettings() {
                   }`}
                 />
               </button>
+            </div>
+          </div>
+        )}
+
+        {tab === 'promotions' && (
+          <div className="space-y-4">
+            <h2 className="text-white font-semibold">Announcement bar</h2>
+            <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+              <div>
+                <p className="text-white font-medium">Show announcement bar</p>
+                <p className="text-gray-400 text-sm">Sticky banner shown above the navbar.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setField('announcementEnabled', !form.announcementEnabled)}
+                aria-pressed={form.announcementEnabled}
+                className={`relative inline-flex w-11 h-6 rounded-full transition-colors duration-200 flex-shrink-0 ${
+                  form.announcementEnabled ? 'bg-primary' : 'bg-white/20'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${
+                    form.announcementEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+            <div>
+              <label htmlFor="announcementText" className="block text-gray-400 text-xs mb-1">Text</label>
+              <input
+                id="announcementText"
+                value={form.announcementText}
+                onChange={e => setField('announcementText', e.target.value)}
+                placeholder="e.g. Free shipping for orders above 1000 EGP — limited time!"
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label htmlFor="announcementLink" className="block text-gray-400 text-xs mb-1">Link (optional)</label>
+              <input
+                id="announcementLink"
+                value={form.announcementLink}
+                onChange={e => setField('announcementLink', e.target.value)}
+                placeholder="/shop"
+                className={inputCls}
+              />
+            </div>
+            <hr className="border-white/10" />
+            <h2 className="text-white font-semibold">Sale countdown</h2>
+            <p className="text-gray-400 text-sm">Show a live countdown on the homepage banner. Leave the date blank to hide.</p>
+            <div>
+              <label htmlFor="saleHeadline" className="block text-gray-400 text-xs mb-1">Headline</label>
+              <input
+                id="saleHeadline"
+                value={form.saleHeadline}
+                onChange={e => setField('saleHeadline', e.target.value)}
+                placeholder="e.g. Black Friday ends in"
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label htmlFor="saleEndsAt" className="block text-gray-400 text-xs mb-1">Sale ends at</label>
+              <input
+                id="saleEndsAt"
+                type="datetime-local"
+                value={form.saleEndsAt}
+                onChange={e => setField('saleEndsAt', e.target.value)}
+                className={inputCls}
+              />
+            </div>
+          </div>
+        )}
+
+        {tab === 'legal' && (
+          <div className="space-y-4">
+            <h2 className="text-white font-semibold">Legal pages</h2>
+            <p className="text-gray-400 text-sm">
+              Edit the content shown at <code className="text-primary">/legal/privacy</code>,{' '}
+              <code className="text-primary">/legal/terms</code>,{' '}
+              <code className="text-primary">/legal/returns</code>, and{' '}
+              <code className="text-primary">/legal/faq</code>. Leave a field empty to use the built-in default. Use <code className="text-primary">#</code> for headings and a blank line for paragraphs.
+            </p>
+            {(
+              [
+                ['legalPrivacy', 'Privacy Policy'],
+                ['legalTerms', 'Terms of Service'],
+                ['legalReturns', 'Returns & Refunds'],
+                ['legalFaq', 'FAQ'],
+              ] as const
+            ).map(([key, label]) => (
+              <div key={key}>
+                <label htmlFor={key} className="block text-gray-400 text-xs mb-1">{label}</label>
+                <textarea
+                  id={key}
+                  rows={6}
+                  value={form[key as keyof SettingsForm] as string}
+                  onChange={e => setField(key as keyof SettingsForm, e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === 'seo' && (
+          <div className="space-y-4">
+            <h2 className="text-white font-semibold">SEO defaults</h2>
+            <p className="text-gray-400 text-sm">
+              These appear in the homepage meta tags and as a fallback for product pages.
+            </p>
+            <div>
+              <label htmlFor="seoDescription" className="block text-gray-400 text-xs mb-1">
+                Default meta description
+              </label>
+              <textarea
+                id="seoDescription"
+                rows={3}
+                value={form.seoDescription}
+                onChange={e => setField('seoDescription', e.target.value)}
+                placeholder="Smart NFC cards, custom websites, IoT and Shopify stores in Egypt."
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label htmlFor="seoKeywords" className="block text-gray-400 text-xs mb-1">
+                Default meta keywords
+              </label>
+              <input
+                id="seoKeywords"
+                value={form.seoKeywords}
+                onChange={e => setField('seoKeywords', e.target.value)}
+                placeholder="nfc card, smart business card, egypt shop"
+                className={inputCls}
+              />
             </div>
           </div>
         )}
