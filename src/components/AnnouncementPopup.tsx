@@ -6,14 +6,13 @@ import { usePathname } from 'next/navigation';
 import { FiX, FiBell } from 'react-icons/fi';
 import { useSettings } from '@/context/SettingsContext';
 
-const STORAGE_KEY = 'announcement-popup-dismissed';
-
+const STORAGE_KEY = 'announcement-corner-dismissed';
 const HIDDEN_PREFIXES = ['/admin'];
 
 export default function AnnouncementPopup() {
   const { settings } = useSettings();
   const pathname = usePathname() || '/';
-  const [open, setOpen] = useState(false);
+  const [dismissed, setDismissed] = useState(true);
 
   const text = settings?.announcementText?.trim() || '';
   const enabled = !!settings?.announcementEnabled;
@@ -25,25 +24,20 @@ export default function AnnouncementPopup() {
 
   useEffect(() => {
     if (!enabled || !text || onAdminRoute) {
-      setOpen(false);
+      setDismissed(true);
       return;
     }
     try {
-      const dismissed = sessionStorage.getItem(cacheKey) === '1';
-      if (!dismissed) {
-        // Small delay so the popup feels intentional rather than racing the page in.
-        const t = window.setTimeout(() => setOpen(true), 600);
-        return () => window.clearTimeout(t);
-      }
+      setDismissed(sessionStorage.getItem(cacheKey) === '1');
     } catch {
-      setOpen(true);
+      setDismissed(false);
     }
   }, [cacheKey, enabled, text, onAdminRoute]);
 
-  if (!open) return null;
+  if (!enabled || !text || onAdminRoute || dismissed) return null;
 
   const close = () => {
-    setOpen(false);
+    setDismissed(true);
     try {
       sessionStorage.setItem(cacheKey, '1');
     } catch {}
@@ -51,49 +45,36 @@ export default function AnnouncementPopup() {
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 animate-fade-in"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="announcement-popup-title"
-      onClick={close}
+      className="fixed bottom-4 right-4 z-[80] max-w-xs w-[calc(100%-2rem)] sm:w-80 animate-fade-up"
+      role="status"
+      aria-live="polite"
     >
-      <div
-        className="relative w-full max-w-md bg-gradient-to-br from-dark-800 to-dark-900 border border-white/10 rounded-2xl shadow-2xl p-7 text-center animate-fade-up"
-        onClick={e => e.stopPropagation()}
-      >
-        <button
-          onClick={close}
-          aria-label="Close announcement"
-          className="absolute top-3 right-3 text-gray-400 hover:text-white transition"
-        >
-          <FiX size={20} />
-        </button>
-
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/15 border border-primary/30 mb-4">
-          <FiBell className="text-primary" size={26} />
-        </div>
-
-        <h2 id="announcement-popup-title" className="text-xl md:text-2xl font-bold text-white mb-3 tracking-tight">
-          Announcement
-        </h2>
-
-        <p className="text-gray-200 text-base leading-relaxed whitespace-pre-wrap mb-6">{text}</p>
-
-        <div className="flex flex-col sm:flex-row gap-2 justify-center">
-          {link ? (
-            <Link
-              href={link}
-              onClick={close}
-              className="inline-flex items-center justify-center bg-primary hover:bg-primary/90 text-white font-semibold px-5 py-2.5 rounded-xl transition btn-shine"
-            >
-              Learn more
-            </Link>
-          ) : null}
+      <div className="bg-gradient-to-br from-dark-800 to-dark-900 border border-white/10 rounded-2xl shadow-2xl p-4 backdrop-blur">
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-xl bg-primary/15 border border-primary/30">
+            <FiBell className="text-primary" size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-white text-sm font-semibold mb-1">Announcement</p>
+            <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap break-words">
+              {text}
+            </p>
+            {link && (
+              <Link
+                href={link}
+                onClick={close}
+                className="inline-block mt-2 text-primary text-sm font-semibold hover:underline"
+              >
+                Learn more &rarr;
+              </Link>
+            )}
+          </div>
           <button
             onClick={close}
-            className="inline-flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold px-5 py-2.5 rounded-xl transition"
+            aria-label="Dismiss announcement"
+            className="flex-shrink-0 text-gray-400 hover:text-white transition"
           >
-            {link ? 'Dismiss' : 'Got it'}
+            <FiX size={16} />
           </button>
         </div>
       </div>

@@ -14,7 +14,6 @@ import ActiveUserTracker from '@/components/ActiveUserTracker';
 import ThemeMetaUpdater from '@/components/ThemeMetaUpdater';
 import BrandMetaUpdater from '@/components/BrandMetaUpdater';
 import MobileBottomNav from '@/components/MobileBottomNav';
-import AnnouncementBar from '@/components/AnnouncementBar';
 import AnnouncementPopup from '@/components/AnnouncementPopup';
 import CookieConsent from '@/components/CookieConsent';
 import MaintenanceGate from '@/components/MaintenanceGate';
@@ -104,7 +103,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                         }}
                       />
                       <MaintenanceGate>
-                        <AnnouncementBar />
                         <Navbar />
                         <ActiveUserTracker />
                         <main className="min-h-screen pt-16 pb-16 md:pb-0">{children}</main>
