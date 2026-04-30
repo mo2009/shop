@@ -628,9 +628,9 @@ class BulkEmailerApp(ctk.CTk):
             date_value = self.date_entry.get_date()
             hour = int(self.hour_var.get())
             minute = int(self.minute_var.get())
+            return dt.datetime.combine(date_value, dt.time(hour=hour, minute=minute))
         except (ValueError, tk.TclError):
             return None
-        return dt.datetime.combine(date_value, dt.time(hour=hour, minute=minute))
 
     def _launch_send(self, job: EmailJob, scheduled: dt.datetime | None) -> None:
         if not self._sending_lock.acquire(blocking=False):
