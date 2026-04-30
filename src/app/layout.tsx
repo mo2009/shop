@@ -70,7 +70,7 @@ export const viewport: Viewport = {
 };
 
 const themeInitScript = `
-(function(){try{var t=localStorage.getItem('theme');if(t!=='light'&&t!=='dark'){t='dark';}document.documentElement.setAttribute('data-theme',t);var l=localStorage.getItem('site-locale');if(l==='ar'||l==='en'){document.documentElement.setAttribute('lang',l);document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');}}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();
+(function(){try{var t=localStorage.getItem('theme');if(t!=='light'&&t!=='dark'){t='dark';}document.documentElement.setAttribute('data-theme',t);document.documentElement.setAttribute('lang','en');document.documentElement.setAttribute('dir','ltr');try{localStorage.removeItem('site-locale');}catch(e){}}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();
 `;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

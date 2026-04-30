@@ -8,7 +8,6 @@ import { useCart } from '@/context/CartContext';
 import { FiShoppingCart, FiMenu, FiX, FiUser } from 'react-icons/fi';
 import { useSettings } from '@/context/SettingsContext';
 import ThemeToggle from '@/components/ThemeToggle';
-import LanguageToggle from '@/components/LanguageToggle';
 import CartDrawer from '@/components/CartDrawer';
 
 export default function Navbar() {
@@ -111,7 +110,6 @@ export default function Navbar() {
             </div>
 
             <div className="flex items-center gap-3">
-              <LanguageToggle className="hidden sm:inline-flex" />
               <ThemeToggle />
 
               <button

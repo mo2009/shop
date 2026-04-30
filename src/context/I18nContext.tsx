@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
+import { createContext, ReactNode, useContext, useEffect } from 'react';
 import { messages, Locale } from '@/lib/i18n';
 
 type I18nContextType = {
@@ -20,38 +20,24 @@ const I18nContext = createContext<I18nContextType>({
 const STORAGE_KEY = 'site-locale';
 
 export const I18nProvider = ({ children }: { children: ReactNode }) => {
-  const [locale, setLocaleState] = useState<Locale>('en');
+  const locale: Locale = 'en';
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY) as Locale | null;
-      if (stored === 'en' || stored === 'ar') {
-        setLocaleState(stored);
-      }
+      localStorage.removeItem(STORAGE_KEY);
     } catch {}
+    document.documentElement.setAttribute('lang', 'en');
+    document.documentElement.setAttribute('dir', 'ltr');
   }, []);
 
-  useEffect(() => {
-    document.documentElement.setAttribute('lang', locale);
-    document.documentElement.setAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
-  }, [locale]);
-
-  const setLocale = (l: Locale) => {
-    setLocaleState(l);
-    try {
-      localStorage.setItem(STORAGE_KEY, l);
-    } catch {}
-  };
+  const setLocale = () => {};
 
   const t = (key: keyof typeof messages.en) => {
-    const dict = messages[locale] || messages.en;
-    return (dict as Record<string, string>)[key as string] || (messages.en as Record<string, string>)[key as string] || String(key);
+    return (messages.en as Record<string, string>)[key as string] || String(key);
   };
 
   return (
-    <I18nContext.Provider
-      value={{ locale, setLocale, t, dir: locale === 'ar' ? 'rtl' : 'ltr' }}
-    >
+    <I18nContext.Provider value={{ locale, setLocale, t, dir: 'ltr' }}>
       {children}
     </I18nContext.Provider>
   );
