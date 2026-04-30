@@ -375,6 +375,7 @@ class BulkEmailerApp(ctk.CTk):
                 button.configure(
                     fg_color=("#1f6aa5", "#1f6aa5"),
                     text_color="white",
+                    border_width=0,
                 )
             else:
                 button.configure(
