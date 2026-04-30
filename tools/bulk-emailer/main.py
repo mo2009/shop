@@ -468,23 +468,20 @@ class BulkEmailerApp(ctk.CTk):
         time_row = ctk.CTkFrame(body, fg_color="transparent")
         time_row.pack(anchor="w")
         ctk.CTkLabel(time_row, text="Date:").pack(side="left", padx=(0, 6))
-        today = dt.date.today()
+        default_dt = dt.datetime.now() + dt.timedelta(minutes=5)
         self.date_entry = DateEntry(
             time_row,
-            year=today.year,
-            month=today.month,
-            day=today.day,
+            year=default_dt.year,
+            month=default_dt.month,
+            day=default_dt.day,
             date_pattern="yyyy-mm-dd",
             width=12,
         )
         self.date_entry.pack(side="left")
 
         ctk.CTkLabel(time_row, text=" Time:").pack(side="left", padx=(12, 6))
-        now = dt.datetime.now()
-        self.hour_var = ctk.StringVar(
-            value=f"{(now.hour + (now.minute + 5) // 60) % 24:02d}"
-        )
-        self.minute_var = ctk.StringVar(value=f"{(now.minute + 5) % 60:02d}")
+        self.hour_var = ctk.StringVar(value=f"{default_dt.hour:02d}")
+        self.minute_var = ctk.StringVar(value=f"{default_dt.minute:02d}")
         self.hour_spin = tk.Spinbox(
             time_row,
             from_=0,

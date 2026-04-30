@@ -206,14 +206,15 @@ def _send_inner(win32com_client, job, scheduled_time, log):
         try:
             mail = _build_one(primary, "; ".join(cc_list))
             mail.Send()
-            sent += len(job.recipients)
+            # CC mode produces a single email regardless of recipient count.
+            sent += 1
             log(
                 "Handed off to Outlook"
                 + (f" (deferred until {scheduled_time:%Y-%m-%d %H:%M})"
                    if scheduled_time else "")
             )
         except Exception as exc:
-            failed += len(job.recipients)
+            failed += 1
             log(f"Failed: {exc}")
     else:
         for index, recipient in enumerate(job.recipients, start=1):
