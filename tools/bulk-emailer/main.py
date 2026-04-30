@@ -10,9 +10,12 @@ Run on Windows: ``python main.py``
 from __future__ import annotations
 
 import datetime as dt
+import html as html_lib
+import re
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from pathlib import Path
+from tkinter import colorchooser, filedialog, messagebox, ttk
 
 import customtkinter as ctk
 from tkcalendar import DateEntry
@@ -29,7 +32,15 @@ from sender import (
 )
 
 APP_TITLE = "Outlook Bulk Emailer"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
+
+_CID_REGEX = re.compile(r'cid:([A-Za-z0-9_-]+)')
+_HTML_TAG_REGEX = re.compile(r'<[^>]+>')
+
+
+def _looks_like_html(text: str) -> bool:
+    """Heuristic: does this body contain HTML tags we'd want to render?"""
+    return bool(_HTML_TAG_REGEX.search(text))
 
 SEND_MODES = [
     ("individual", "Individual"),
@@ -140,6 +151,148 @@ class PresetDialog(ctk.CTkToplevel):
         return dialog.result
 
 
+class LinkDialog(ctk.CTkToplevel):
+    """Two-field dialog for inserting a hyperlink (URL + display text)."""
+
+    def __init__(self, parent: ctk.CTk, prefilled_text: str = "") -> None:
+        super().__init__(parent)
+        self.title("Insert link")
+        self.geometry("520x220")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.result: tuple[str, str] | None = None
+
+        ctk.CTkLabel(
+            self,
+            text="URL (e.g. https://example.com):",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w", padx=16, pady=(14, 4))
+        self.url_var = ctk.StringVar()
+        url_entry = ctk.CTkEntry(self, textvariable=self.url_var)
+        url_entry.pack(fill="x", padx=16)
+        url_entry.focus_set()
+
+        ctk.CTkLabel(
+            self,
+            text="Display text (optional — defaults to the URL):",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w", padx=16, pady=(12, 4))
+        self.text_var = ctk.StringVar(value=prefilled_text)
+        ctk.CTkEntry(self, textvariable=self.text_var).pack(fill="x", padx=16)
+
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.pack(fill="x", padx=16, pady=(16, 14))
+        ctk.CTkButton(bar, text="Insert", command=self._on_insert, width=110).pack(
+            side="right", padx=(6, 0)
+        )
+        ctk.CTkButton(
+            bar,
+            text="Cancel",
+            command=self._on_cancel,
+            width=110,
+            fg_color="transparent",
+            border_width=1,
+        ).pack(side="right")
+
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.bind("<Return>", lambda _e: self._on_insert())
+        self.bind("<Escape>", lambda _e: self._on_cancel())
+        self.after(50, self._grab)
+
+    def _grab(self) -> None:
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+
+    def _on_insert(self) -> None:
+        url = self.url_var.get().strip()
+        if not url:
+            messagebox.showwarning("Missing URL", "Type a URL.", parent=self)
+            return
+        # Be friendly: prepend https:// if the user just typed a domain.
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9+\-.]*:", url):
+            url = "https://" + url
+        self.result = (url, self.text_var.get().strip())
+        self.destroy()
+
+    def _on_cancel(self) -> None:
+        self.result = None
+        self.destroy()
+
+    @classmethod
+    def ask(cls, parent: ctk.CTk, prefilled_text: str = "") -> tuple[str, str] | None:
+        dialog = cls(parent, prefilled_text=prefilled_text)
+        parent.wait_window(dialog)
+        return dialog.result
+
+
+class HtmlPreviewDialog(ctk.CTkToplevel):
+    """Pop-up window that renders the HTML body the way Outlook will.
+
+    Uses ``tkhtmlview`` if available; falls back to a plain-text view of
+    the raw HTML otherwise.
+    """
+
+    def __init__(
+        self,
+        parent: ctk.CTk,
+        html_body: str,
+        inline_images: dict[str, str],
+    ) -> None:
+        super().__init__(parent)
+        self.title("HTML preview")
+        self.geometry("780x560")
+        self.transient(parent)
+
+        ctk.CTkLabel(
+            self,
+            text="Preview (best-effort — Outlook's exact rendering may differ slightly):",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).pack(anchor="w", padx=14, pady=(12, 4))
+
+        # Replace cid: references with absolute file paths so the
+        # preview renderer can actually display them. Inline images
+        # won't load on the recipient side until Outlook embeds them
+        # at send time, but for the preview we map cid:foo -> file://...
+        rewritten = html_body
+        for cid, path in inline_images.items():
+            rewritten = rewritten.replace(
+                f"cid:{cid}",
+                Path(path).resolve().as_uri(),
+            )
+
+        try:
+            from tkhtmlview import HTMLScrolledText  # type: ignore[import-not-found]
+
+            view = HTMLScrolledText(self, html=rewritten)
+            view.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+            view.set_html(rewritten)
+        except ImportError:
+            note = ctk.CTkLabel(
+                self,
+                text=(
+                    "tkhtmlview is not installed — falling back to a raw "
+                    "HTML view. Install it with: pip install tkhtmlview"
+                ),
+                text_color=("gray45", "gray70"),
+                wraplength=720,
+                justify="left",
+            )
+            note.pack(anchor="w", padx=14, pady=(0, 4))
+            text = ctk.CTkTextbox(self, font=ctk.CTkFont(family="Consolas", size=12))
+            text.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+            text.insert("1.0", rewritten)
+            text.configure(state="disabled")
+
+        ctk.CTkButton(
+            self,
+            text="Close",
+            command=self.destroy,
+            width=110,
+        ).pack(side="right", padx=14, pady=(0, 14))
+
+
 class BulkEmailerApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
@@ -157,6 +310,12 @@ class BulkEmailerApp(ctk.CTk):
         self._attachments: list[str] = []
         self._outlook_accounts: list[OutlookAccount] = []
         self._mode_buttons: dict[str, ctk.CTkButton] = {}
+        # Inline images registered via the "🖼️ Image" toolbar button.
+        # Keyed by the auto-generated CID; value is the absolute path on
+        # disk. Only those whose CID still appears in the body at send
+        # time are actually attached.
+        self._inline_images: dict[str, str] = {}
+        self._next_cid = 1
 
         self._build_ui()
         self._apply_initial_settings()
@@ -722,7 +881,10 @@ class BulkEmailerApp(ctk.CTk):
         body = self._section(
             parent,
             "4. Body",
-            hint="Pick a saved body from the list, or click '+ New' to add one.",
+            hint=(
+                "Pick a saved body, or click '+ New' to add one. Use the "
+                "Format toolbar below to add bold/italic/colour/links/images."
+            ),
         )
 
         row = ctk.CTkFrame(body, fg_color="transparent")
@@ -754,8 +916,181 @@ class BulkEmailerApp(ctk.CTk):
             border_width=1,
         ).pack(side="left")
 
-        self.body_text = ctk.CTkTextbox(body, height=180)
-        self.body_text.pack(fill="x", pady=(8, 0))
+        # Format toolbar: B / I / U / 🎨 Color / 🔗 Link / 🖼 Image / 👁 Preview
+        # plus an HTML/plain-text toggle on the right.
+        toolbar = ctk.CTkFrame(body, fg_color=("gray90", "gray20"))
+        toolbar.pack(fill="x", pady=(10, 0))
+
+        def _tool(text: str, command, width: int = 38) -> ctk.CTkButton:
+            return ctk.CTkButton(
+                toolbar,
+                text=text,
+                width=width,
+                height=30,
+                command=command,
+                fg_color="transparent",
+                hover_color=("gray80", "gray30"),
+                text_color=("gray10", "gray90"),
+            )
+
+        _tool("B", self._fmt_bold).pack(side="left", padx=(8, 2), pady=4)
+        _tool("I", self._fmt_italic).pack(side="left", padx=2, pady=4)
+        _tool("U", self._fmt_underline).pack(side="left", padx=2, pady=4)
+        _tool("🎨 Color", self._fmt_color, width=80).pack(side="left", padx=(10, 2), pady=4)
+        _tool("🔗 Link", self._insert_link, width=80).pack(side="left", padx=2, pady=4)
+        _tool("🖼 Image", self._insert_image, width=90).pack(side="left", padx=2, pady=4)
+        _tool("👁 Preview", self._open_html_preview, width=110).pack(side="left", padx=(10, 2), pady=4)
+
+        self.is_html_var = ctk.BooleanVar(
+            value=bool(self.state_data["settings"].get("is_html_body", True))
+        )
+        ctk.CTkSwitch(
+            toolbar,
+            text="Send as HTML",
+            variable=self.is_html_var,
+            command=self._on_html_mode_toggled,
+        ).pack(side="right", padx=10, pady=4)
+
+        self.body_text = ctk.CTkTextbox(body, height=200)
+        self.body_text.pack(fill="x", pady=(6, 0))
+
+        # Friendly hint text underneath the editor.
+        self.body_format_hint = ctk.CTkLabel(
+            body,
+            text="",
+            text_color=("gray45", "gray65"),
+            wraplength=900,
+            justify="left",
+            font=ctk.CTkFont(size=12),
+        )
+        self.body_format_hint.pack(anchor="w", pady=(4, 0))
+        self._refresh_body_format_hint()
+
+    def _refresh_body_format_hint(self) -> None:
+        if not hasattr(self, "body_format_hint"):
+            return
+        if self.is_html_var.get():
+            self.body_format_hint.configure(
+                text=(
+                    "HTML mode: Bold/Italic/Underline/Color wrap selected text. "
+                    "Use Link/Image to insert hyperlinks and inline images. "
+                    "Click 'Preview' to see how Outlook will render the message."
+                )
+            )
+        else:
+            self.body_format_hint.configure(
+                text=(
+                    "Plain text mode: the message will be sent without formatting. "
+                    "Toolbar buttons still insert HTML markup but it will appear "
+                    "as raw text in the recipient's inbox."
+                )
+            )
+
+    def _on_html_mode_toggled(self) -> None:
+        self.state_data["settings"]["is_html_body"] = bool(self.is_html_var.get())
+        storage.save(self.state_data)
+        self._refresh_body_format_hint()
+
+    # ---- Format toolbar callbacks ------------------------------------
+    def _wrap_selection(self, open_tag: str, close_tag: str) -> None:
+        """Wrap the current selection in ``open_tag`` ... ``close_tag``.
+
+        If nothing is selected, just inserts the empty pair at the
+        cursor and positions the caret between them.
+        """
+        try:
+            start = self.body_text.index("sel.first")
+            end = self.body_text.index("sel.last")
+            selected = self.body_text.get(start, end)
+            self.body_text.delete(start, end)
+            self.body_text.insert(start, f"{open_tag}{selected}{close_tag}")
+        except tk.TclError:
+            # No selection — insert an empty wrapper at the cursor and
+            # leave the caret right between the tags.
+            cursor = self.body_text.index("insert")
+            self.body_text.insert(cursor, f"{open_tag}{close_tag}")
+            self.body_text.mark_set(
+                "insert",
+                f"{cursor} + {len(open_tag)} chars",
+            )
+        self.body_text.focus_set()
+
+    def _fmt_bold(self) -> None:
+        self._wrap_selection("<b>", "</b>")
+
+    def _fmt_italic(self) -> None:
+        self._wrap_selection("<i>", "</i>")
+
+    def _fmt_underline(self) -> None:
+        self._wrap_selection("<u>", "</u>")
+
+    def _fmt_color(self) -> None:
+        result = colorchooser.askcolor(parent=self, title="Pick text colour")
+        if not result or not result[1]:
+            return
+        hex_color = result[1]
+        self._wrap_selection(
+            f'<span style="color:{hex_color}">',
+            "</span>",
+        )
+
+    def _insert_link(self) -> None:
+        """Insert ``<a href="URL">text</a>`` at the cursor.
+
+        If the user has selected text first, that text becomes the link
+        text and only the URL is asked for.
+        """
+        try:
+            start = self.body_text.index("sel.first")
+            end = self.body_text.index("sel.last")
+            selected_text = self.body_text.get(start, end)
+        except tk.TclError:
+            start = end = None
+            selected_text = ""
+
+        url = LinkDialog.ask(self, prefilled_text=selected_text)
+        if not url:
+            return
+        href, display = url
+        if not display:
+            display = href
+        anchor = f'<a href="{html_lib.escape(href, quote=True)}">{html_lib.escape(display)}</a>'
+        if start is not None and end is not None:
+            self.body_text.delete(start, end)
+            self.body_text.insert(start, anchor)
+        else:
+            self.body_text.insert("insert", anchor)
+        self.body_text.focus_set()
+
+    def _insert_image(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Pick an image to embed in the body",
+            filetypes=[
+                ("Images", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not path:
+            return
+        cid = f"img{self._next_cid}"
+        self._next_cid += 1
+        self._inline_images[cid] = str(Path(path).resolve())
+        filename = html_lib.escape(Path(path).name, quote=True)
+        snippet = (
+            f'<img src="cid:{cid}" alt="{filename}" '
+            f'style="max-width:600px;height:auto;display:block;">'
+        )
+        self.body_text.insert("insert", snippet)
+        self.body_text.focus_set()
+        self._log(f"Embedded image '{Path(path).name}' as cid:{cid}")
+
+    def _open_html_preview(self) -> None:
+        body_text = self.body_text.get("1.0", "end").rstrip()
+        if not body_text:
+            messagebox.showinfo("Nothing to preview", "Write a body first.")
+            return
+        preview = HtmlPreviewDialog(self, html_body=body_text, inline_images=self._inline_images)
+        preview.focus_set()
 
     def _body_preview_values(self) -> list[str]:
         return [self._preview(b) for b in self.state_data["bodies"]]
@@ -1046,6 +1381,17 @@ class BulkEmailerApp(ctk.CTk):
         if not envelopes:
             raise ValueError("Could not build any messages from the recipient list.")
 
+        is_html = bool(self.is_html_var.get()) and _looks_like_html(body_text)
+        # Only attach the inline images that are still referenced by a
+        # ``cid:<id>`` in the current body (the user may have deleted
+        # an image they previously inserted).
+        used_cids = set(_CID_REGEX.findall(body_text))
+        inline_images = {
+            cid: path
+            for cid, path in self._inline_images.items()
+            if cid in used_cids
+        }
+
         job = EmailJob(
             envelopes=envelopes,
             subject=subject,
@@ -1053,6 +1399,8 @@ class BulkEmailerApp(ctk.CTk):
             attachments=list(self._attachments),
             account_smtp=self._selected_account_smtp(),
             mode_label=mode,
+            is_html=is_html,
+            inline_images=inline_images,
         )
         return job, scheduled
 

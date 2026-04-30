@@ -31,6 +31,16 @@ whichever account is already signed in to Outlook on the PC — there is
   (otherwise the program uses Outlook's default account).
 - Subject and body **presets**: pick from a list, save your own, delete
   the ones you don't need.
+- **Rich-text body (HTML)**: a Format toolbar above the body editor adds
+  **Bold / Italic / Underline / Color / Link / Image / Preview** buttons.
+  Bold / Italic / Underline / Color wrap the text you've selected.
+  *Link* opens a small dialog asking for a URL and (optional) display
+  text. *Image* lets you embed an image **inline** in the message body
+  (it's attached as a hidden CID attachment, so the recipient sees the
+  picture inside the email rather than as a separate file). *Preview*
+  pops up a window that renders the HTML the way Outlook will. There's
+  a "Send as HTML" toggle on the toolbar — switch it off to send the
+  body as plain text instead.
 - **Attachments**: attach any number of files.
 - **Schedule send**: pick a date and time; messages are queued in
   Outlook's Outbox with `DeferredDeliveryTime`, so Outlook itself

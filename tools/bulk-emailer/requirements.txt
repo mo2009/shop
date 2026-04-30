@@ -1,4 +1,7 @@
 customtkinter>=5.2.2
 openpyxl>=3.1.2
 tkcalendar>=1.6.1
+# tkhtmlview powers the in-app HTML body preview pop-up. Optional —
+# the app falls back to a plain-text preview when it's not installed.
+tkhtmlview>=0.3.0
 pywin32>=306; sys_platform == "win32"
