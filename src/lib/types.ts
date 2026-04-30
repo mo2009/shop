@@ -44,6 +44,8 @@ export interface Order {
   orderStatus: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   shippingAddress: ShippingAddress;
   instapayReference?: string;
+  /** When true, the order is hidden from every admin-facing page but still visible to the customer. */
+  hiddenFromAdmin?: boolean;
   createdAt: Date;
 }
 

@@ -72,7 +72,11 @@ export default function AdminDashboard() {
           getDocs(collection(db, 'orders')),
           getDocs(collection(db, 'products')),
         ]);
-        setOrders(ordersSnap.docs.map(d => ({ id: d.id, ...(d.data() as Order) })));
+        setOrders(
+          ordersSnap.docs
+            .map(d => ({ id: d.id, ...(d.data() as Order) }))
+            .filter(o => o.hiddenFromAdmin !== true),
+        );
         setProductsCount(productsSnap.size);
         const low = productsSnap.docs
           .map(d => {
@@ -262,17 +266,19 @@ export default function AdminDashboard() {
           <h2 className="text-lg font-semibold text-white tracking-tight">Pending &amp; Processing Orders</h2>
           <button
             onClick={async () => {
-              if (!confirm('⚠️ This will permanently delete ALL orders. Are you sure?')) return;
-              if (!confirm('This cannot be undone. Delete all orders?')) return;
+              if (!confirm('Clear ALL orders from the admin view? Customers will still see their own orders.')) return;
               try {
-                const { getDocs, collection, deleteDoc, doc } = await import('firebase/firestore');
+                const { getDocs, collection, updateDoc, doc } = await import('firebase/firestore');
                 const snap = await getDocs(collection(db, 'orders'));
-                await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'orders', d.id))));
+                const visible = snap.docs.filter(d => (d.data() as { hiddenFromAdmin?: boolean }).hiddenFromAdmin !== true);
+                await Promise.all(
+                  visible.map(d => updateDoc(doc(db, 'orders', d.id), { hiddenFromAdmin: true })),
+                );
                 setOrders([]);
-                alert('All orders deleted.');
+                alert('All orders cleared from the admin view. Customers can still see them in their account.');
               } catch (e) {
                 console.error(e);
-                alert('Failed to delete orders.');
+                alert('Failed to clear orders.');
               }
             }}
             className="px-3 py-1.5 bg-red-500/15 text-red-400 border border-red-500/30 rounded-lg text-xs hover:bg-red-500/25 transition"
