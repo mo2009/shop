@@ -63,26 +63,43 @@ def _import_win32com():
     return win32com.client
 
 
+def _import_pythoncom():
+    """Import ``pythoncom`` with a friendly error if missing."""
+    try:
+        import pythoncom  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise OutlookUnavailableError(
+            "This program needs the 'pywin32' package. "
+            "Install with: pip install pywin32"
+        ) from exc
+    return pythoncom
+
+
 def list_accounts() -> list[OutlookAccount]:
     """Return every account currently configured in the Outlook profile."""
     win32com_client = _import_win32com()
+    pythoncom = _import_pythoncom()
+    pythoncom.CoInitialize()
     try:
-        outlook = win32com_client.Dispatch("Outlook.Application")
-        namespace = outlook.GetNamespace("MAPI")
-    except Exception as exc:  # pragma: no cover - depends on Outlook
-        raise OutlookUnavailableError(
-            f"Could not talk to Outlook. Make sure Outlook is installed "
-            f"and you are signed in. ({exc})"
-        ) from exc
+        try:
+            outlook = win32com_client.Dispatch("Outlook.Application")
+            namespace = outlook.GetNamespace("MAPI")
+        except Exception as exc:  # pragma: no cover - depends on Outlook
+            raise OutlookUnavailableError(
+                f"Could not talk to Outlook. Make sure Outlook is installed "
+                f"and you are signed in. ({exc})"
+            ) from exc
 
-    accounts = namespace.Accounts
-    out: list[OutlookAccount] = []
-    for index in range(1, accounts.Count + 1):
-        acc = accounts.Item(index)
-        smtp = getattr(acc, "SmtpAddress", "") or ""
-        display = getattr(acc, "DisplayName", "") or smtp or f"Account {index}"
-        out.append(OutlookAccount(display_name=display, smtp_address=smtp))
-    return out
+        accounts = namespace.Accounts
+        out: list[OutlookAccount] = []
+        for index in range(1, accounts.Count + 1):
+            acc = accounts.Item(index)
+            smtp = getattr(acc, "SmtpAddress", "") or ""
+            display = getattr(acc, "DisplayName", "") or smtp or f"Account {index}"
+            out.append(OutlookAccount(display_name=display, smtp_address=smtp))
+        return out
+    finally:
+        pythoncom.CoUninitialize()
 
 
 def _resolve_account(namespace, smtp_address: str):
@@ -130,7 +147,19 @@ def send(
 
     log = progress or (lambda _msg: None)
     win32com_client = _import_win32com()
+    pythoncom = _import_pythoncom()
 
+    # COM objects must be initialised on each thread that uses them.
+    # ``send`` is typically called from a background thread, so we always
+    # initialise here and tear down on exit.
+    pythoncom.CoInitialize()
+    try:
+        return _send_inner(win32com_client, job, scheduled_time, log)
+    finally:
+        pythoncom.CoUninitialize()
+
+
+def _send_inner(win32com_client, job, scheduled_time, log):
     try:
         outlook = win32com_client.Dispatch("Outlook.Application")
         namespace = outlook.GetNamespace("MAPI")
