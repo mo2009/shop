@@ -42,6 +42,35 @@ def _looks_like_html(text: str) -> bool:
     """Heuristic: does this body contain HTML tags we'd want to render?"""
     return bool(_HTML_TAG_REGEX.search(text))
 
+
+_BR_BEFORE_NEWLINE_REGEX = re.compile(r'<br\s*/?>\s*\Z', re.IGNORECASE)
+
+
+def _newlines_to_br(body: str) -> str:
+    """Insert ``<br>`` before every bare newline in ``body``.
+
+    Outlook's HTML renderer collapses unescaped ``\\n`` characters into
+    a single space, so plain-text-style line breaks in an HTML body
+    silently disappear. This walks through the body line by line and
+    appends ``<br>`` to each line that doesn't already end with one
+    (so a ``<br>`` the user typed manually isn't doubled).
+
+    Carriage returns are normalised to plain newlines first.
+    """
+    body = body.replace('\r\n', '\n').replace('\r', '\n')
+    lines = body.split('\n')
+    out: list[str] = []
+    for index, line in enumerate(lines):
+        if index == len(lines) - 1:
+            # Last line: nothing more to break; append untouched.
+            out.append(line)
+            break
+        if _BR_BEFORE_NEWLINE_REGEX.search(line):
+            out.append(line + '\n')
+        else:
+            out.append(line + '<br>\n')
+    return ''.join(out)
+
 SEND_MODES = [
     ("individual", "Individual"),
     ("cc", "Single CC"),
@@ -1382,6 +1411,14 @@ class BulkEmailerApp(ctk.CTk):
             raise ValueError("Could not build any messages from the recipient list.")
 
         is_html = bool(self.is_html_var.get()) and _looks_like_html(body_text)
+        if is_html:
+            # Outlook's HTML renderer collapses bare newlines into a
+            # single space, so a body the user typed as plain text
+            # (e.g. a default preset with "Hello,\n\nWe are excited…")
+            # would arrive as a single run-on line as soon as any
+            # toolbar formatting is applied. Convert each \n into a
+            # <br> so the visible line breaks are preserved.
+            body_text = _newlines_to_br(body_text)
         # Only attach the inline images that are still referenced by a
         # ``cid:<id>`` in the current body (the user may have deleted
         # an image they previously inserted).
