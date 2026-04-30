@@ -179,8 +179,9 @@ export default function AdminSettings() {
     } catch (e) {
       console.error(e);
       toast.error('Failed to update maintenance mode');
+    } finally {
+      setSavingMaintenance(false);
     }
-    setSavingMaintenance(false);
   };
 
   const setField = (field: keyof SettingsForm, value: string | boolean) =>
