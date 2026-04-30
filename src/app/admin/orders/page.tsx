@@ -4,11 +4,13 @@ import { useEffect, useState } from 'react';
 import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import toast from 'react-hot-toast';
+import { FiSearch, FiX } from 'react-icons/fi';
 
 export default function AdminOrders() {
   const [orders, setOrders] = useState<any[]>([]);
   const [selectedTab, setSelectedTab] = useState<string>('all');
   const [selectedPayment, setSelectedPayment] = useState<string>('all');
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
   const fetchOrders = async () => {
@@ -45,6 +47,27 @@ export default function AdminOrders() {
     <div>
       <h1 className="text-2xl font-bold text-white mb-6">Orders</h1>
 
+      <div className="relative mb-4">
+        <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+        <input
+          type="search"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by reference number (e.g. A1B2C3D4)"
+          aria-label="Search orders by reference number"
+          className="w-full bg-dark-700/60 border border-white/10 rounded-xl pl-10 pr-9 py-2.5 text-white placeholder-gray-500 focus:border-primary focus:outline-none transition"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch('')}
+            aria-label="Clear search"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white p-1"
+          >
+            <FiX size={16} />
+          </button>
+        )}
+      </div>
+
       <div className="flex flex-wrap gap-2 mb-4 items-center">
         {['all', 'pending', 'processing', 'shipped', 'delivered', 'cancelled'].map(tab => (
           <button key={tab}
@@ -62,16 +85,33 @@ export default function AdminOrders() {
 
       {orders.length === 0 ? (
         <p className="text-gray-400 text-center py-20">No orders yet.</p>
-      ) : (
+      ) : (() => {
+        const q = search.trim().toLowerCase().replace(/^#/, '');
+        const visible = orders.filter((order: any) => {
+          if (q) {
+            const id: string = order.id || '';
+            if (!id.toLowerCase().includes(q)) return false;
+            return true; // Search bypasses status/payment filters
+          }
+          const statusOk =
+            selectedTab === 'all'
+              ? ['pending', 'processing'].includes(order.orderStatus)
+              : order.orderStatus === selectedTab;
+          const paymentOk = selectedPayment === 'all' || order.paymentMethod === selectedPayment;
+          return statusOk && paymentOk;
+        });
+
+        if (visible.length === 0) {
+          return (
+            <p className="text-gray-400 text-center py-20">
+              {q ? `No orders found for reference “${search}”.` : 'No orders match the current filters.'}
+            </p>
+          );
+        }
+
+        return (
         <div className="space-y-4">
-          {orders
-           .filter((order: any) =>
-  (selectedTab === 'all'
-    ? ['pending', 'processing'].includes(order.orderStatus)
-    : order.orderStatus === selectedTab) &&
-  (selectedPayment === 'all' || order.paymentMethod === selectedPayment)
-)
-            .map((order: any) => (
+          {visible.map((order: any) => (
               <div key={order.id} className="bg-dark-700/50 border border-white/10 rounded-2xl p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
                 <div>
@@ -123,7 +163,8 @@ export default function AdminOrders() {
               </div>
             ))}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
