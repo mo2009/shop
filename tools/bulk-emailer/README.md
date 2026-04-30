@@ -71,15 +71,18 @@ python main.py
 - **Single CC**: a single `MailItem` is created with the first
   recipient in `To:` and the rest in `Cc:`. Everyone sees the full
   distribution.
-- **Auto**: recipients are grouped by domain. Within each company
-  group of 2+ addresses, the first address whose local part starts
-  with one of your priority keywords goes in `To:` and the rest of
-  the group goes in `Cc:`. Companies with no priority match, free
-  mail addresses (gmail / outlook / yahoo / …) and singletons are
-  sent as individual one-to-one emails. The mode reveals an editable
-  list of priority keywords (defaults: `purchasing`, `operation`,
-  `ops`) and a live preview pane that shows you the exact To/Cc
-  layout the program will use.
+- **Auto**: recipients are grouped by domain. Each company gets a
+  single merged message: within a group of 2+ addresses, the first
+  address whose local part starts with one of your priority keywords
+  goes in `To:` and the rest of the group goes in `Cc:`. **If no
+  priority keyword matches anyone in the group, the first email in
+  input order is used as `To:` and the rest go in `Cc:`** — the
+  company still receives one combined message. Free-mail addresses
+  (gmail / outlook / yahoo / …) and singletons (a domain seen only
+  once in the recipient list) are sent as individual one-to-one
+  emails. The mode reveals an editable list of priority keywords
+  (defaults: `purchasing`, `operation`, `ops`) and a live preview
+  pane that shows you the exact To/Cc layout the program will use.
 
 ## Schedule send
 
