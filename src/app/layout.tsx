@@ -16,6 +16,7 @@ import BrandMetaUpdater from '@/components/BrandMetaUpdater';
 import MobileBottomNav from '@/components/MobileBottomNav';
 import AnnouncementBar from '@/components/AnnouncementBar';
 import CookieConsent from '@/components/CookieConsent';
+import MaintenanceGate from '@/components/MaintenanceGate';
 import { Toaster } from 'react-hot-toast';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -101,13 +102,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                           success: { iconTheme: { primary: '#2196F3', secondary: '#ffffff' } },
                         }}
                       />
-                      <AnnouncementBar />
-                      <Navbar />
-                      <ActiveUserTracker />
-                      <main className="min-h-screen pt-16 pb-16 md:pb-0">{children}</main>
-                      <Footer />
-                      <MobileBottomNav />
-                      <CookieConsent />
+                      <MaintenanceGate>
+                        <AnnouncementBar />
+                        <Navbar />
+                        <ActiveUserTracker />
+                        <main className="min-h-screen pt-16 pb-16 md:pb-0">{children}</main>
+                        <Footer />
+                        <MobileBottomNav />
+                        <CookieConsent />
+                      </MaintenanceGate>
                     </RecentlyViewedProvider>
                   </WishlistProvider>
                 </CartProvider>

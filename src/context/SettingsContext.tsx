@@ -34,6 +34,15 @@ type Settings = {
   /** SEO meta defaults. */
   seoDescription?: string;
   seoKeywords?: string;
+
+  /**
+   * When true, non-admin visitors are shown an "Under Maintenance" page
+   * instead of the storefront. Toggle only from the Firestore console
+   * at settings/site.maintenanceMode.
+   */
+  maintenanceMode?: boolean;
+  /** Optional message displayed on the maintenance screen. */
+  maintenanceMessage?: string;
 };
 
 type SettingsContextType = {
