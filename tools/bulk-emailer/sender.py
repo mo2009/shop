@@ -44,6 +44,12 @@ class EmailJob:
     attachments: list[str] = field(default_factory=list)
     account_smtp: str = ""  # Empty = default Outlook account.
     mode_label: str = "individual"  # purely cosmetic, used in logs
+    is_html: bool = False
+    # Map of CID -> absolute file path. Each entry is attached to every
+    # outgoing message and tagged with PR_ATTACH_CONTENT_ID = <cid> so
+    # an ``<img src="cid:<cid>">`` reference in the HTML body renders
+    # inside the message rather than as a separate attachment.
+    inline_images: dict[str, str] = field(default_factory=dict)
 
 
 ProgressCallback = Callable[[str], None]
@@ -129,6 +135,48 @@ def _attach_files(mail_item, attachments: list[str], log: ProgressCallback) -> N
         mail_item.Attachments.Add(str(path.resolve()))
 
 
+# MAPI named-property tags exposed via Outlook's ``PropertyAccessor``.
+# These let us mark an attachment as inline/hidden and tie it to a CID
+# referenced in the HTML body.
+_PR_ATTACH_CONTENT_ID = (
+    "http://schemas.microsoft.com/mapi/proptag/0x3712001E"
+)
+_PR_ATTACHMENT_HIDDEN = (
+    "http://schemas.microsoft.com/mapi/proptag/0x7FFE000B"
+)
+
+
+def _attach_inline_images(
+    mail_item,
+    inline_images: dict[str, str],
+    log: ProgressCallback,
+) -> None:
+    """Attach images that the HTML body references via ``cid:<id>``.
+
+    Each attachment is tagged with ``PR_ATTACH_CONTENT_ID`` so Outlook
+    renders it inside the body and with ``PR_ATTACHMENT_HIDDEN`` so it
+    doesn't appear as a regular paperclip attachment.
+    """
+    for cid, path_str in inline_images.items():
+        path = Path(path_str)
+        if not path.is_file():
+            log(f"  inline image skipped (not found): {path_str}")
+            continue
+        try:
+            attachment = mail_item.Attachments.Add(str(path.resolve()))
+            accessor = attachment.PropertyAccessor
+            accessor.SetProperty(_PR_ATTACH_CONTENT_ID, cid)
+            try:
+                accessor.SetProperty(_PR_ATTACHMENT_HIDDEN, True)
+            except Exception:
+                # Some Outlook builds reject PR_ATTACHMENT_HIDDEN; the
+                # email still renders correctly, the attachment just
+                # appears in the paperclip list as well.
+                pass
+        except Exception as exc:
+            log(f"  inline image '{path.name}' failed: {exc}")
+
+
 def send(
     job: EmailJob,
     scheduled_time: dt.datetime | None = None,
@@ -200,7 +248,10 @@ def _send_inner(win32com_client, job, scheduled_time, log):
         try:
             mail = outlook.CreateItem(_OL_MAIL_ITEM)
             mail.Subject = job.subject
-            mail.Body = job.body
+            if job.is_html:
+                mail.HTMLBody = job.body
+            else:
+                mail.Body = job.body
             mail.To = to_csv
             if cc_csv:
                 mail.CC = cc_csv
@@ -210,6 +261,8 @@ def _send_inner(win32com_client, job, scheduled_time, log):
                 # attribute on some Outlook versions.
                 mail._oleobj_.Invoke(*(64209, 0, 8, 0, sender_account))  # noqa: SLF001
             _attach_files(mail, job.attachments, log)
+            if job.is_html and job.inline_images:
+                _attach_inline_images(mail, job.inline_images, log)
             if scheduled_time is not None:
                 mail.DeferredDeliveryTime = scheduled_time
             mail.Send()

@@ -88,6 +88,11 @@ def _default_settings() -> dict[str, Any]:
         "account_smtp": "",  # Empty = use Outlook's default account.
         "theme": "system",  # "light" | "dark" | "system"
         "send_mode": "individual",  # "individual" | "cc" | "auto"
+        # When True the body is sent as Outlook's HTMLBody (so colours,
+        # links, inline images, etc. all render). When False it's sent
+        # as plain text. Default to HTML mode since the toolbar in the
+        # body editor produces HTML markup.
+        "is_html_body": True,
     }
 
 
