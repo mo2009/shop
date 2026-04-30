@@ -266,24 +266,123 @@ export default function AdminDashboard() {
           <h2 className="text-lg font-semibold text-white tracking-tight">Pending &amp; Processing Orders</h2>
           <button
             onClick={async () => {
-              if (!confirm('Clear ALL orders from the admin view? Customers will still see their own orders.')) return;
+              if (
+                !confirm(
+                  'Clear delivered orders from the admin view? A spreadsheet of the last 30 days of delivered orders will be downloaded first. Customers still see their own orders.',
+                )
+              )
+                return;
               try {
                 const { getDocs, collection, updateDoc, doc } = await import('firebase/firestore');
                 const snap = await getDocs(collection(db, 'orders'));
-                const visible = snap.docs.filter(d => (d.data() as { hiddenFromAdmin?: boolean }).hiddenFromAdmin !== true);
+                const allDocs = snap.docs.map(d => ({ id: d.id, data: d.data() as Record<string, unknown> }));
+                const isDeliveredVisible = (data: Record<string, unknown>) =>
+                  data.orderStatus === 'delivered' && data.hiddenFromAdmin !== true;
+
+                const visibleDelivered = allDocs.filter(({ data }) => isDeliveredVisible(data));
+                if (visibleDelivered.length === 0) {
+                  alert('No delivered orders to clear.');
+                  return;
+                }
+
+                // Export delivered orders from the last 30 days to a CSV before hiding.
+                const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+                const recent = visibleDelivered.filter(({ data }) => {
+                  const ts = (data.createdAt as { seconds?: number } | undefined)?.seconds;
+                  return typeof ts === 'number' && ts * 1000 >= cutoff;
+                });
+                if (recent.length > 0) {
+                  const headers = [
+                    'Reference',
+                    'Date',
+                    'Customer',
+                    'Email',
+                    'Phone',
+                    'Total',
+                    'Discount',
+                    'Coupon',
+                    'Payment Method',
+                    'Payment Status',
+                    'Order Status',
+                    'City',
+                    'Governorate',
+                    'Address',
+                    'Items',
+                  ];
+                  const escape = (v: unknown) => {
+                    const s = v === null || v === undefined ? '' : String(v);
+                    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+                    return s;
+                  };
+                  const lines = [headers.join(',')];
+                  recent.forEach(({ id, data }) => {
+                    const o = data as {
+                      userName?: string;
+                      userEmail?: string;
+                      total?: number;
+                      discountAmount?: number;
+                      couponCode?: string;
+                      paymentMethod?: string;
+                      paymentStatus?: string;
+                      orderStatus?: string;
+                      shippingAddress?: { phone?: string; city?: string; governorate?: string; address?: string };
+                      items?: Array<{ productName?: string; quantity?: number }>;
+                      createdAt?: { seconds?: number };
+                    };
+                    const ts = o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000) : null;
+                    const itemsStr = (o.items || [])
+                      .map(it => `${it.productName ?? ''} x${it.quantity ?? 1}`)
+                      .join(' | ');
+                    const row = [
+                      `#${id.slice(0, 8).toUpperCase()}`,
+                      ts ? ts.toISOString() : '',
+                      o.userName || '',
+                      o.userEmail || '',
+                      o.shippingAddress?.phone || '',
+                      o.total ?? '',
+                      o.discountAmount ?? '',
+                      o.couponCode || '',
+                      o.paymentMethod || '',
+                      o.paymentStatus || '',
+                      o.orderStatus || '',
+                      o.shippingAddress?.city || '',
+                      o.shippingAddress?.governorate || '',
+                      o.shippingAddress?.address || '',
+                      itemsStr,
+                    ].map(escape);
+                    lines.push(row.join(','));
+                  });
+                  // Prepend BOM so Excel auto-detects UTF-8 (Arabic city/address fields render correctly).
+                  const blob = new Blob(['\ufeff' + lines.join('\n')], {
+                    type: 'text/csv;charset=utf-8;',
+                  });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `delivered-orders-last-30d-${new Date().toISOString().slice(0, 10)}.csv`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                }
+
                 await Promise.all(
-                  visible.map(d => updateDoc(doc(db, 'orders', d.id), { hiddenFromAdmin: true })),
+                  visibleDelivered.map(({ id }) =>
+                    updateDoc(doc(db, 'orders', id), { hiddenFromAdmin: true }),
+                  ),
                 );
-                setOrders([]);
-                alert('All orders cleared from the admin view. Customers can still see them in their account.');
+                setOrders(prev => prev.filter(o => o.orderStatus !== 'delivered'));
+                alert(
+                  `Cleared ${visibleDelivered.length} delivered order(s) from the admin view. ${recent.length} downloaded to CSV. Customers can still see their orders.`,
+                );
               } catch (e) {
                 console.error(e);
-                alert('Failed to clear orders.');
+                alert('Failed to clear delivered orders.');
               }
             }}
             className="px-3 py-1.5 bg-red-500/15 text-red-400 border border-red-500/30 rounded-lg text-xs hover:bg-red-500/25 transition"
           >
-            Delete All Orders
+            Clear Delivered Orders
           </button>
         </div>
         {recentOrders.length === 0 ? (
