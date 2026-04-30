@@ -284,8 +284,15 @@ class HtmlPreviewDialog(ctk.CTkToplevel):
         # preview renderer can actually display them. Inline images
         # won't load on the recipient side until Outlook embeds them
         # at send time, but for the preview we map cid:foo -> file://...
+        # Sort by CID length descending so e.g. ``cid:img10`` is
+        # rewritten before ``cid:img1`` (otherwise the shorter prefix
+        # would corrupt the longer one).
         rewritten = html_body
-        for cid, path in inline_images.items():
+        for cid, path in sorted(
+            inline_images.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        ):
             rewritten = rewritten.replace(
                 f"cid:{cid}",
                 Path(path).resolve().as_uri(),
