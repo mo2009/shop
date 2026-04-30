@@ -514,7 +514,14 @@ class BulkEmailerApp(ctk.CTk):
         if not hasattr(self, "priority_section_wrapper"):
             return
         if self.send_mode_var.get() == "auto":
-            self.priority_section_wrapper.pack(fill="x", pady=6, padx=2)
+            # Re-pack BEFORE the subject section if we know it, so toggling
+            # the visibility doesn't push the section to the end of the
+            # parent's pack order.
+            kwargs: dict = {"fill": "x", "pady": 6, "padx": 2}
+            anchor = getattr(self, "_subject_section_wrapper", None)
+            if anchor is not None and anchor.winfo_exists():
+                kwargs["before"] = anchor
+            self.priority_section_wrapper.pack(**kwargs)
         else:
             self.priority_section_wrapper.pack_forget()
 
@@ -613,6 +620,10 @@ class BulkEmailerApp(ctk.CTk):
             "3. Subject",
             hint="Pick a saved subject from the list, or click '+ New' to add one.",
         )
+        # Remember the section's outer wrapper so the priority section
+        # can re-insert itself directly above it when the user toggles
+        # back to Auto mode.
+        self._subject_section_wrapper = body.master
 
         row = ctk.CTkFrame(body, fg_color="transparent")
         row.pack(fill="x")
@@ -970,6 +981,11 @@ class BulkEmailerApp(ctk.CTk):
             self.body_text.insert("1.0", self.state_data["bodies"][0])
         self._refresh_recipient_count()
         self._refresh_preview()
+        # Now that every section is built, apply the priority section's
+        # visibility based on the persisted send mode. (During the first
+        # `_set_mode` call inside `_build_recipients_section` the wrapper
+        # didn't exist yet, so the visibility update was a no-op.)
+        self._refresh_priority_section_visibility()
 
     def _on_theme_change(self, value: str) -> None:
         ctk.set_appearance_mode(value)
