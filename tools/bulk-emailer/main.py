@@ -394,9 +394,11 @@ class BulkEmailerApp(ctk.CTk):
             ),
             "auto": (
                 "Group recipients by company (the part after @). For each "
-                "company, the priority address (e.g. purchasing@…) goes in "
-                "'To' and the rest go in CC. Singletons and personal mail "
-                "domains are sent individually."
+                "company group, the priority address (e.g. purchasing@…) "
+                "goes in 'To' and the rest go in CC. If no priority keyword "
+                "matches, the first email in the group becomes 'To' so the "
+                "company still gets one combined send. Singletons and "
+                "personal-mail domains are sent individually."
             ),
         }
         self.mode_hint_label.configure(text=hints.get(mode, ""))
@@ -459,7 +461,9 @@ class BulkEmailerApp(ctk.CTk):
                 "When grouping by company in Auto mode, an address whose local "
                 "part starts with one of these keywords (case-insensitive) goes "
                 "in the 'To' field. The rest of the company group goes in CC. "
-                "Order matters: earlier keywords win over later ones."
+                "Order matters: earlier keywords win over later ones. "
+                "If no keyword matches, the first email in the group is used "
+                "as 'To' so each company still gets a single merged send."
             ),
             text_color=("gray40", "gray70"),
             wraplength=900,

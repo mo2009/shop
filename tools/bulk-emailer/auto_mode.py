@@ -11,14 +11,15 @@ Design choices (matching the user-confirmed defaults):
 * Free-mail / personal domains (gmail, outlook, hotmail, yahoo, …) are
   never grouped.
 * In a company group of 2+ emails:
-    - If a recipient's local-part starts with one of the configured
-      priority keywords (case-insensitive), it goes in **To** and the
-      rest of the group goes in **CC**.
-    - If multiple priority matches exist, the *earliest priority
-      keyword in the user-provided list* wins (so the order of the
-      keywords matters: first listed = highest priority).
-    - If no priority match exists, the entire group is fanned out as
-      individual one-to-one emails.
+    - If one or more recipient local-parts start with a configured
+      priority keyword (case-insensitive), the highest-priority match
+      goes in **To** and the rest of the group goes in **CC**.
+      "Highest priority" = earliest position in the user-provided
+      keyword list (so the order of the keywords matters).
+    - If no priority match exists, the group is still merged into a
+      single message: the **first email in input order** becomes To
+      and the rest go in CC. This keeps "one company = one outbound
+      email" regardless of whether a priority address is present.
 * Singleton company groups (only one address from that domain) are
   sent as individual one-to-one emails.
 
@@ -133,9 +134,11 @@ def build_auto_envelopes(
                 priority_email = email
 
         if priority_email is None:
-            # Q1 default: send each individually.
-            individuals.extend(group)
-            continue
+            # No priority keyword matched anyone in this group: fall
+            # back to "first email in input order goes to To, the rest
+            # go in CC" so the company still receives a single merged
+            # message instead of N individual sends.
+            priority_email = group[0]
 
         cc_list = [e for e in group if e != priority_email]
         grouped.append(Envelope(to=[priority_email], cc=cc_list, label=domain))
