@@ -15,6 +15,7 @@ import ThemeMetaUpdater from '@/components/ThemeMetaUpdater';
 import BrandMetaUpdater from '@/components/BrandMetaUpdater';
 import MobileBottomNav from '@/components/MobileBottomNav';
 import AnnouncementBar from '@/components/AnnouncementBar';
+import AnnouncementPopup from '@/components/AnnouncementPopup';
 import CookieConsent from '@/components/CookieConsent';
 import MaintenanceGate from '@/components/MaintenanceGate';
 import { Toaster } from 'react-hot-toast';
@@ -110,6 +111,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                         <Footer />
                         <MobileBottomNav />
                         <CookieConsent />
+                        <AnnouncementPopup />
                       </MaintenanceGate>
                     </RecentlyViewedProvider>
                   </WishlistProvider>
