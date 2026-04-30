@@ -120,6 +120,16 @@ export default function AdminOrders() {
   </p>
   <p className="text-white font-semibold">{order.userName || order.userEmail}</p>
   <p className="text-gray-400 text-sm">{order.userEmail}</p>
+  {order.shippingAddress?.phone && (
+    <p className="text-gray-400 text-sm">
+      <a
+        href={`tel:${order.shippingAddress.phone}`}
+        className="hover:text-primary transition"
+      >
+        {order.shippingAddress.phone}
+      </a>
+    </p>
+  )}
   <p className="text-gray-500 text-xs mt-1">
     {order.createdAt?.seconds ? new Date(order.createdAt.seconds * 1000).toLocaleDateString('en-EG', { dateStyle: 'medium' }) : 'N/A'}
   </p>
