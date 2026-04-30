@@ -19,6 +19,8 @@ import {
   FiSend,
   FiStar,
 } from 'react-icons/fi';
+import CountdownTimer from '@/components/CountdownTimer';
+import { useSettings } from '@/context/SettingsContext';
 
 const TAGLINES = ['Connect.', 'Personalize.', 'Share with one tap.'];
 
@@ -43,9 +45,19 @@ const TESTIMONIALS = [
 ];
 
 export default function HomePage() {
+  const { settings } = useSettings();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [taglineIdx, setTaglineIdx] = useState(0);
+
+  const featured = (() => {
+    const explicitlyFeatured = products.filter(p => p.featured);
+    if (explicitlyFeatured.length > 0) return explicitlyFeatured.slice(0, 8);
+    return products.slice(0, 4);
+  })();
+  const saleEndsAt = settings?.saleEndsAt;
+  const showCountdown =
+    !!saleEndsAt && !Number.isNaN(new Date(saleEndsAt).getTime()) && new Date(saleEndsAt).getTime() > Date.now();
 
   useEffect(() => {
     async function fetchProducts() {
@@ -232,6 +244,23 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Sale countdown banner */}
+      {showCountdown && (
+        <section className="py-10 px-4 bg-gradient-to-r from-primary/10 via-secondary/10 to-primary/10 border-y border-white/10">
+          <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6 text-center md:text-left">
+            <div>
+              <p className="text-primary font-semibold uppercase tracking-wider text-xs mb-1">
+                Limited time
+              </p>
+              <h3 className="text-2xl md:text-3xl font-bold text-white">
+                {settings?.saleHeadline || 'Sale ends in'}
+              </h3>
+            </div>
+            <CountdownTimer target={saleEndsAt!} />
+          </div>
+        </section>
+      )}
+
       {/* Featured Products */}
       <section className="py-20 px-4 bg-dark-800/50">
         <div className="max-w-7xl mx-auto">
@@ -253,11 +282,11 @@ export default function HomePage() {
                 <SkeletonCard key={i} />
               ))}
             </div>
-          ) : products.length === 0 ? (
+          ) : featured.length === 0 ? (
             <p className="text-gray-400 text-center py-10">No products yet. Check back soon!</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {products.slice(0, 4).map((product, i) => (
+              {featured.map((product, i) => (
                 <div key={product.id} className="animate-fade-up" style={{ animationDelay: `${i * 60}ms` }}>
                   <ProductCard product={product} />
                 </div>

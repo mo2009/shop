@@ -15,6 +15,25 @@ type Settings = {
   socialWhatsapp: string;
   socialTiktok: string;
   instapayEnabled: boolean;
+
+  /** Site-wide announcement bar shown above the navbar. Empty = hidden. */
+  announcementText?: string;
+  announcementLink?: string;
+  announcementEnabled?: boolean;
+
+  /** Optional ISO datetime; when in the future a countdown shows on the homepage. */
+  saleEndsAt?: string;
+  saleHeadline?: string;
+
+  /** Editable legal pages (Markdown-ish plain text with line breaks). */
+  legalPrivacy?: string;
+  legalTerms?: string;
+  legalReturns?: string;
+  legalFaq?: string;
+
+  /** SEO meta defaults. */
+  seoDescription?: string;
+  seoKeywords?: string;
 };
 
 type SettingsContextType = {

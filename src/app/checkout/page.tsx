@@ -5,11 +5,25 @@ import { useRouter } from 'next/navigation';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  collection,
+  addDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+  limit,
+  serverTimestamp,
+  updateDoc,
+  increment,
+} from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
-import { FiCheck, FiArrowLeft, FiArrowRight, FiTruck, FiCreditCard, FiFileText } from 'react-icons/fi';
+import { FiCheck, FiArrowLeft, FiArrowRight, FiTruck, FiCreditCard, FiFileText, FiTag } from 'react-icons/fi';
+import { Coupon } from '@/lib/types';
+import { validateCoupon } from '@/lib/coupons';
 
 type Step = 0 | 1 | 2;
 
@@ -22,6 +36,9 @@ export default function CheckoutPage() {
   const [step, setStep] = useState<Step>(0);
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'instapay'>('cod');
   const [instapayRef, setInstapayRef] = useState('');
+  const [couponCode, setCouponCode] = useState('');
+  const [coupon, setCoupon] = useState<Coupon | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
   const [form, setForm] = useState({
     fullName: '',
     phone: '',
@@ -31,6 +48,47 @@ export default function CheckoutPage() {
   });
 
   const instapayEnabled = settings?.instapayEnabled ?? true;
+
+  const validation = validateCoupon(coupon, total);
+  const discountAmount = validation.ok ? validation.discount : 0;
+  const finalTotal = Math.max(0, total - discountAmount);
+
+  const applyCoupon = async () => {
+    const code = couponCode.trim().toUpperCase();
+    if (!code) return;
+    setCouponLoading(true);
+    try {
+      const q = query(
+        collection(db, 'coupons'),
+        where('code', '==', code),
+        limit(1),
+      );
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        toast.error('Coupon not found');
+        setCoupon(null);
+        return;
+      }
+      const c = { id: snap.docs[0].id, ...snap.docs[0].data() } as Coupon;
+      const v = validateCoupon(c, total);
+      if (!v.ok) {
+        toast.error(v.reason);
+        setCoupon(null);
+        return;
+      }
+      setCoupon(c);
+      toast.success(`Saved ${v.discount} EGP with ${c.code}`);
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not apply coupon');
+    }
+    setCouponLoading(false);
+  };
+
+  const removeCoupon = () => {
+    setCoupon(null);
+    setCouponCode('');
+  };
 
   if (items.length === 0) {
     return (
@@ -90,7 +148,11 @@ export default function CheckoutPage() {
           quantity: i.quantity,
           image: i.product.image,
         })),
-        total,
+        subtotal: total,
+        total: finalTotal,
+        discountAmount,
+        couponCode: coupon?.code || null,
+        couponId: coupon?.id || null,
         paymentMethod,
         paymentStatus: 'pending',
         orderStatus: 'pending',
@@ -98,9 +160,35 @@ export default function CheckoutPage() {
         instapayReference: paymentMethod === 'instapay' ? instapayRef : null,
         createdAt: serverTimestamp(),
       });
+
+      // Decrement stock + bump coupon usage (best-effort, non-blocking).
+      Promise.allSettled([
+        ...items.map(async i => {
+          try {
+            const ref = doc(db, 'products', i.product.id);
+            const s = await getDoc(ref);
+            if (s.exists()) {
+              const data = s.data() as Record<string, unknown>;
+              if (typeof data.stockQuantity === 'number') {
+                const next = Math.max(0, (data.stockQuantity as number) - i.quantity);
+                await updateDoc(ref, {
+                  stockQuantity: next,
+                  inStock: next > 0,
+                });
+              }
+            }
+          } catch (e) {
+            console.error('stock decrement failed', e);
+          }
+        }),
+        coupon
+          ? updateDoc(doc(db, 'coupons', coupon.id), { uses: increment(1) }).catch(() => null)
+          : Promise.resolve(),
+      ]);
+
       clearCart();
       toast.success('Order placed successfully!');
-      router.push('/');
+      router.push('/user/orders');
     } catch (err) {
       console.error(err);
       toast.error('Failed to place order');
@@ -287,10 +375,59 @@ export default function CheckoutPage() {
                   </div>
                 ))}
               </div>
-              <div className="border-t border-white/10 mt-3 pt-3 flex justify-between">
-                <span className="text-white font-semibold">Total</span>
-                <span className="text-secondary font-bold text-lg">{total} EGP</span>
+              <div className="border-t border-white/10 mt-3 pt-3 space-y-1 text-sm">
+                <div className="flex justify-between text-gray-400">
+                  <span>Subtotal</span>
+                  <span>{total} EGP</span>
+                </div>
+                {discountAmount > 0 && (
+                  <div className="flex justify-between text-green-400">
+                    <span>Discount {coupon?.code ? `(${coupon.code})` : ''}</span>
+                    <span>−{discountAmount} EGP</span>
+                  </div>
+                )}
+                <div className="flex justify-between pt-2 border-t border-white/5">
+                  <span className="text-white font-semibold">Total</span>
+                  <span className="text-secondary font-bold text-lg">{finalTotal} EGP</span>
+                </div>
               </div>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+              <h3 className="text-white font-semibold mb-2 text-sm flex items-center gap-2">
+                <FiTag size={14} /> Promo / Coupon code
+              </h3>
+              {coupon && validation.ok ? (
+                <div className="flex items-center justify-between bg-green-500/10 border border-green-500/30 rounded-xl px-3 py-2">
+                  <p className="text-green-300 text-sm">
+                    <span className="font-mono font-semibold">{coupon.code}</span> applied — saved {discountAmount} EGP
+                  </p>
+                  <button
+                    type="button"
+                    onClick={removeCoupon}
+                    className="text-xs text-gray-300 hover:text-white"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    value={couponCode}
+                    onChange={e => setCouponCode(e.target.value.toUpperCase())}
+                    placeholder="Enter code"
+                    className="flex-1 bg-dark-600 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:border-primary focus:outline-none transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={applyCoupon}
+                    disabled={couponLoading || !couponCode.trim()}
+                    className="px-4 py-2 bg-primary/90 hover:bg-primary text-white text-sm font-semibold rounded-xl transition disabled:opacity-50"
+                  >
+                    Apply
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

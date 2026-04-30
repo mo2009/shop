@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { collection, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import Link from 'next/link';
 import {
   FiUsers,
   FiShoppingBag,
@@ -11,6 +12,7 @@ import {
   FiClock,
   FiTrendingUp,
   FiTrendingDown,
+  FiAlertTriangle,
 } from 'react-icons/fi';
 import Sparkline from '@/components/Sparkline';
 
@@ -54,10 +56,13 @@ function revenueByDay(orders: Order[], days: number) {
   return buckets;
 }
 
+type LowStockProduct = { id: string; name: string; stockQuantity: number };
+
 export default function AdminDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [productsCount, setProductsCount] = useState(0);
   const [activeUsers, setActiveUsers] = useState(0);
+  const [lowStock, setLowStock] = useState<LowStockProduct[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -69,6 +74,14 @@ export default function AdminDashboard() {
         ]);
         setOrders(ordersSnap.docs.map(d => ({ id: d.id, ...(d.data() as Order) })));
         setProductsCount(productsSnap.size);
+        const low = productsSnap.docs
+          .map(d => {
+            const data = d.data() as { name?: string; stockQuantity?: number };
+            return { id: d.id, name: data.name || 'Untitled', stockQuantity: data.stockQuantity ?? -1 };
+          })
+          .filter(p => p.stockQuantity >= 0 && p.stockQuantity <= 5)
+          .sort((a, b) => a.stockQuantity - b.stockQuantity);
+        setLowStock(low);
       } catch (e) {
         console.error(e);
       }
@@ -179,6 +192,34 @@ export default function AdminDashboard() {
         <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Dashboard</h1>
         <p className="text-gray-400 text-sm">Store overview at a glance.</p>
       </div>
+
+      {lowStock.length > 0 && (
+        <div className="glass border border-amber-500/30 bg-amber-500/5 rounded-2xl p-4 mb-6 animate-fade-up">
+          <div className="flex items-start gap-3">
+            <FiAlertTriangle className="text-amber-400 mt-0.5 flex-shrink-0" size={18} />
+            <div className="flex-1 min-w-0">
+              <p className="text-amber-300 font-medium text-sm">
+                Low stock — {lowStock.length} product{lowStock.length === 1 ? '' : 's'} need restocking
+              </p>
+              <ul className="mt-2 space-y-1 text-xs text-amber-200/80">
+                {lowStock.slice(0, 6).map(p => (
+                  <li key={p.id} className="flex items-center justify-between gap-3">
+                    <Link
+                      href="/admin/products"
+                      className="truncate hover:text-amber-100"
+                    >
+                      {p.name}
+                    </Link>
+                    <span className="font-mono">
+                      {p.stockQuantity === 0 ? 'Out of stock' : `${p.stockQuantity} left`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
         {statCards.map((card, i) => (

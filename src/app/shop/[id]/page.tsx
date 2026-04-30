@@ -11,6 +11,11 @@ import Image from 'next/image';
 import Link from 'next/link';
 import ProductCard from '@/components/ProductCard';
 import { FiShoppingCart, FiArrowLeft, FiHeart, FiMinus, FiPlus, FiCheck } from 'react-icons/fi';
+import StarRating from '@/components/StarRating';
+import ReviewSection from '@/components/ReviewSection';
+import NotifyMeForm from '@/components/NotifyMeForm';
+import RecentlyViewedStrip from '@/components/RecentlyViewedStrip';
+import { useRecentlyViewed } from '@/context/RecentlyViewedContext';
 
 export default function ProductPage() {
   const { id } = useParams();
@@ -20,6 +25,7 @@ export default function ProductPage() {
   const [qty, setQty] = useState(1);
   const { addToCart } = useCart();
   const { has, toggle } = useWishlist();
+  const { add: addRecent } = useRecentlyViewed();
 
   useEffect(() => {
     async function fetchAll() {
@@ -28,6 +34,7 @@ export default function ProductPage() {
         if (snap.exists()) {
           const p = { id: snap.id, ...snap.data() } as Product;
           setProduct(p);
+          addRecent(p.id);
           // fetch related (same category)
           const listSnap = await getDocs(collection(db, 'products'));
           const all = listSnap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
@@ -110,6 +117,11 @@ export default function ProductPage() {
 
         <div className="animate-fade-up delay-75">
           <h1 className="text-3xl md:text-4xl font-bold text-white mb-3 tracking-tight">{product.name}</h1>
+          {!!product.reviewCount && (
+            <div className="mb-3">
+              <StarRating value={product.rating || 0} count={product.reviewCount} />
+            </div>
+          )}
           <div className="flex items-baseline gap-3 flex-wrap mb-6">
             <span className="text-secondary font-bold text-3xl">{product.price} EGP</span>
             {typeof product.originalPrice === 'number' && product.originalPrice > product.price && (
@@ -146,29 +158,46 @@ export default function ProductPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={() => {
-                for (let i = 0; i < qty; i++) addToCart(product);
-              }}
-              disabled={!product.inStock}
-              className="bg-primary hover:bg-primary/90 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-7 py-3 rounded-xl font-semibold transition flex items-center gap-2 btn-shine"
-            >
-              <FiShoppingCart /> {product.inStock ? 'Add to Cart' : 'Out of Stock'}
-            </button>
-            <button
-              onClick={() => toggle(product.id, product.name)}
-              aria-pressed={liked}
-              className={`px-5 py-3 rounded-xl font-medium transition flex items-center gap-2 border ${
-                liked
-                  ? 'border-red-500/50 bg-red-500/10 text-red-300'
-                  : 'border-white/15 text-gray-200 hover:border-white/30'
-              }`}
-            >
-              <FiHeart fill={liked ? 'currentColor' : 'none'} size={16} />
-              {liked ? 'Wishlisted' : 'Wishlist'}
-            </button>
-          </div>
+          {(() => {
+            const sq = typeof product.stockQuantity === 'number' ? product.stockQuantity : null;
+            const inStock = sq === null ? product.inStock : sq > 0;
+            const lowStock = sq !== null && sq > 0 && sq <= 5;
+            return (
+              <>
+                {lowStock && (
+                  <p className="mb-4 text-amber-300 text-sm font-medium">Hurry — only {sq} left in stock!</p>
+                )}
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={() => {
+                      for (let i = 0; i < qty; i++) addToCart(product);
+                    }}
+                    disabled={!inStock}
+                    className="bg-primary hover:bg-primary/90 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-7 py-3 rounded-xl font-semibold transition flex items-center gap-2 btn-shine"
+                  >
+                    <FiShoppingCart /> {inStock ? 'Add to Cart' : 'Out of Stock'}
+                  </button>
+                  <button
+                    onClick={() => toggle(product.id, product.name)}
+                    aria-pressed={liked}
+                    className={`px-5 py-3 rounded-xl font-medium transition flex items-center gap-2 border ${
+                      liked
+                        ? 'border-red-500/50 bg-red-500/10 text-red-300'
+                        : 'border-white/15 text-gray-200 hover:border-white/30'
+                    }`}
+                  >
+                    <FiHeart fill={liked ? 'currentColor' : 'none'} size={16} />
+                    {liked ? 'Wishlisted' : 'Wishlist'}
+                  </button>
+                </div>
+                {!inStock && (
+                  <div className="mt-6">
+                    <NotifyMeForm productId={product.id} productName={product.name} />
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           <ul className="mt-8 space-y-2 text-sm text-gray-300">
             <li className="flex items-center gap-2">
@@ -184,6 +213,10 @@ export default function ProductPage() {
         </div>
       </div>
 
+      <section className="mt-16">
+        <ReviewSection productId={product.id} />
+      </section>
+
       {related.length > 0 && (
         <section className="mt-20">
           <h2 className="text-2xl font-bold text-white mb-6 tracking-tight">You might also like</h2>
@@ -194,6 +227,10 @@ export default function ProductPage() {
           </div>
         </section>
       )}
+
+      <section className="mt-20">
+        <RecentlyViewedStrip excludeId={product.id} />
+      </section>
     </div>
   );
 }

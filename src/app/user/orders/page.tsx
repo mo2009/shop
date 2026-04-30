@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react';
 import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import toast from 'react-hot-toast';
+import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import { FiClock, FiCheck, FiX } from 'react-icons/fi';
+import { FiClock, FiCheck, FiX, FiActivity } from 'react-icons/fi';
+import OrderStatusTimeline from '@/components/OrderStatusTimeline';
 
 export default function UserOrders() {
   const { user, loading: authLoading } = useAuth();
@@ -77,12 +79,24 @@ export default function UserOrders() {
                   </div>
                 </div>
 
+                {/* Status timeline */}
+                <div className="my-4">
+                  <OrderStatusTimeline status={order.orderStatus} />
+                </div>
+
                 {/* Items */}
                 <div className="mb-3">
                   {order.items?.map((item: any, i: number) => (
                     <p key={i} className="text-gray-300 text-sm">{item.productName} x{item.quantity} — {item.price * item.quantity} EGP</p>
                   ))}
                 </div>
+
+                {order.couponCode && (
+                  <p className="text-gray-400 text-xs mb-2">
+                    Coupon applied: <span className="font-mono text-primary">{order.couponCode}</span>
+                    {order.discountAmount ? ` (−${order.discountAmount} EGP)` : ''}
+                  </p>
+                )}
 
                 {/* Instapay payment status banner */}
                 {isInstapay && (
@@ -117,15 +131,22 @@ export default function UserOrders() {
                   </div>
                 )}
 
-                {/* Cancel button — only for pending COD orders or pending instapay not yet reviewed */}
-                {order.orderStatus === 'pending' && (
-                  <button
-                    onClick={() => cancelOrder(order.id)}
-                    className="mt-1 px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-sm hover:bg-red-500/30 transition"
+                <div className="flex flex-wrap gap-2 mt-1">
+                  <Link
+                    href={`/user/orders/${order.id}/tracking`}
+                    className="px-3 py-1.5 bg-primary/15 text-primary border border-primary/30 rounded-lg text-sm hover:bg-primary/25 transition inline-flex items-center gap-1.5"
                   >
-                    Cancel Order
-                  </button>
-                )}
+                    <FiActivity size={14} /> Track order
+                  </Link>
+                  {order.orderStatus === 'pending' && (
+                    <button
+                      onClick={() => cancelOrder(order.id)}
+                      className="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-sm hover:bg-red-500/30 transition"
+                    >
+                      Cancel Order
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}

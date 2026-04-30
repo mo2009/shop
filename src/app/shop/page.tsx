@@ -22,6 +22,8 @@ export default function ShopPage() {
   const [filter, setFilter] = useState<string>('all');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortMode>('default');
+  const [inStockOnly, setInStockOnly] = useState(false);
+  const [maxPrice, setMaxPrice] = useState<number | null>(null);
 
   useEffect(() => {
     async function fetchData() {
@@ -39,6 +41,11 @@ export default function ShopPage() {
     }
     fetchData();
   }, []);
+
+  const priceCeiling = useMemo(
+    () => products.reduce((m, p) => Math.max(m, p.price || 0), 0) || 1000,
+    [products],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -58,12 +65,21 @@ export default function ShopPage() {
           p.color?.toLowerCase().includes(q),
       );
     }
+    if (inStockOnly) {
+      list = list.filter(p => {
+        const sq = typeof p.stockQuantity === 'number' ? p.stockQuantity : null;
+        return sq === null ? p.inStock : sq > 0;
+      });
+    }
+    if (maxPrice !== null) {
+      list = list.filter(p => p.price <= maxPrice);
+    }
     const sorted = [...list];
     if (sort === 'price-asc') sorted.sort((a, b) => a.price - b.price);
     else if (sort === 'price-desc') sorted.sort((a, b) => b.price - a.price);
     else if (sort === 'name-asc') sorted.sort((a, b) => a.name.localeCompare(b.name));
     return sorted;
-  }, [products, filter, query, sort]);
+  }, [products, filter, query, sort, inStockOnly, maxPrice]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-12">
@@ -107,6 +123,37 @@ export default function ShopPage() {
               <option value="price-desc">Price: High → Low</option>
               <option value="name-asc">Name: A → Z</option>
             </select>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-gray-300 bg-white/5 border border-white/10 rounded-full px-3 py-1.5">
+            <input
+              type="checkbox"
+              checked={inStockOnly}
+              onChange={e => setInStockOnly(e.target.checked)}
+              className="accent-primary"
+            />
+            In stock only
+          </label>
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-xs text-gray-300">
+            <span className="whitespace-nowrap">Max price</span>
+            <input
+              type="range"
+              min={0}
+              max={priceCeiling}
+              step={Math.max(10, Math.round(priceCeiling / 50))}
+              value={maxPrice ?? priceCeiling}
+              onChange={e => {
+                const v = Number(e.target.value);
+                setMaxPrice(v >= priceCeiling ? null : v);
+              }}
+              className="accent-primary w-32 md:w-40"
+              aria-label="Maximum price"
+            />
+            <span className="text-white font-medium tabular-nums w-16 text-right">
+              {(maxPrice ?? priceCeiling)} EGP
+            </span>
           </div>
         </div>
 

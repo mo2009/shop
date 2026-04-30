@@ -14,6 +14,8 @@ import {
   FiTag,
   FiChevronLeft,
   FiChevronRight,
+  FiGift,
+  FiUsers,
 } from 'react-icons/fi';
 const SIDEBAR_KEY = 'admin-sidebar-collapsed';
 
@@ -65,6 +67,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { href: '/admin/orders', icon: <FiShoppingBag size={18} />, label: 'Orders' },
     { href: '/admin/payments', icon: <FiDollarSign size={18} />, label: 'Payments' },
     { href: '/admin/categories', icon: <FiTag size={18} />, label: 'Categories' },
+    { href: '/admin/coupons', icon: <FiGift size={18} />, label: 'Coupons' },
+    { href: '/admin/customers', icon: <FiUsers size={18} />, label: 'Customers' },
     { href: '/admin/settings', icon: <FiSettings size={18} />, label: 'Settings' },
   ];
 
@@ -134,7 +138,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </aside>
 
-      <div className="md:hidden fixed bottom-0 left-0 right-0 glass-strong border-t border-white/10 z-50 grid grid-cols-6">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 glass-strong border-t border-white/10 z-50 grid grid-cols-8">
         {links.map(link => {
           const active = pathname === link.href;
           return (

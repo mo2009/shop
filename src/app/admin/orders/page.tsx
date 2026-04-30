@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import toast from 'react-hot-toast';
-import { FiSearch, FiX } from 'react-icons/fi';
+import { FiSearch, FiX, FiDownload } from 'react-icons/fi';
 
 export default function AdminOrders() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -43,9 +43,75 @@ export default function AdminOrders() {
     return <div className="flex justify-center py-20"><div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
   }
 
+  const exportCsv = () => {
+    if (orders.length === 0) {
+      toast.error('No orders to export');
+      return;
+    }
+    const headers = [
+      'Reference',
+      'Date',
+      'Customer',
+      'Email',
+      'Phone',
+      'Total',
+      'Discount',
+      'Coupon',
+      'Payment Method',
+      'Payment Status',
+      'Order Status',
+      'City',
+      'Governorate',
+      'Address',
+    ];
+    const escape = (v: unknown) => {
+      const s = v === null || v === undefined ? '' : String(v);
+      if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+    const lines = [headers.join(',')];
+    orders.forEach((o: any) => {
+      const ts = o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000) : null;
+      const row = [
+        `#${(o.id || '').slice(0, 8).toUpperCase()}`,
+        ts ? ts.toISOString() : '',
+        o.userName || '',
+        o.userEmail || '',
+        o.shippingAddress?.phone || '',
+        o.total ?? '',
+        o.discountAmount ?? '',
+        o.couponCode || '',
+        o.paymentMethod || '',
+        o.paymentStatus || '',
+        o.orderStatus || '',
+        o.shippingAddress?.city || '',
+        o.shippingAddress?.governorate || '',
+        o.shippingAddress?.address || '',
+      ].map(escape);
+      lines.push(row.join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
-      <h1 className="text-2xl font-bold text-white mb-6">Orders</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-white">Orders</h1>
+        <button
+          onClick={exportCsv}
+          className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white px-3 py-2 rounded-xl text-sm transition"
+        >
+          <FiDownload size={16} /> Export CSV
+        </button>
+      </div>
 
       <div className="relative mb-4">
         <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />

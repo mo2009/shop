@@ -28,6 +28,8 @@ export default function AdminProducts() {
     image: string;
     color: string;
     inStock: boolean;
+    stockQuantity: string;
+    featured: boolean;
   }>({
     name: '',
     description: '',
@@ -37,6 +39,8 @@ export default function AdminProducts() {
     image: '',
     color: '',
     inStock: true,
+    stockQuantity: '',
+    featured: false,
   });
 
   const fetchData = async () => {
@@ -65,6 +69,8 @@ export default function AdminProducts() {
       image: '',
       color: '',
       inStock: true,
+      stockQuantity: '',
+      featured: false,
     });
     setShowModal(true);
   };
@@ -86,6 +92,8 @@ export default function AdminProducts() {
       image: p.image,
       color: p.color || '',
       inStock: p.inStock,
+      stockQuantity: typeof p.stockQuantity === 'number' ? String(p.stockQuantity) : '',
+      featured: !!p.featured,
     });
     setShowModal(true);
   };
@@ -113,7 +121,10 @@ export default function AdminProducts() {
       return;
     }
     try {
-      const data = {
+      const stockNum = form.stockQuantity === '' ? null : Number(form.stockQuantity);
+      // If a stock quantity is provided, derive inStock from it.
+      const derivedInStock = stockNum === null ? form.inStock : stockNum > 0;
+      const data: Record<string, unknown> = {
         name: form.name,
         description: form.description,
         price: priceNum,
@@ -122,9 +133,11 @@ export default function AdminProducts() {
         categories: form.categories,
         image: form.image,
         color: form.color || null,
-        inStock: form.inStock,
-        createdAt: serverTimestamp(),
+        inStock: derivedInStock,
+        stockQuantity: stockNum,
+        featured: form.featured,
       };
+      if (!editing) data.createdAt = serverTimestamp();
       if (editing) {
         await updateDoc(doc(db, 'products', editing.id), data);
         toast.success('Product updated');
@@ -288,9 +301,44 @@ export default function AdminProducts() {
               </div>
               <input type="text" placeholder="Color (optional)" value={form.color} onChange={e => setForm({...form, color: e.target.value})}
                 className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none" />
+              <div>
+                <label htmlFor="stockQuantity" className="block text-gray-400 text-xs mb-1">
+                  Stock Quantity <span className="text-gray-500">(optional)</span>
+                </label>
+                <input
+                  id="stockQuantity"
+                  type="number"
+                  min={0}
+                  placeholder="Leave blank to use the In-Stock toggle"
+                  value={form.stockQuantity}
+                  onChange={e => setForm({ ...form, stockQuantity: e.target.value })}
+                  className="w-full bg-dark-600 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary focus:outline-none"
+                />
+                <p className="text-gray-500 text-xs mt-1">
+                  When set, stock decrements automatically as orders are placed and the storefront shows "Only X left" warnings.
+                </p>
+              </div>
               <label className="flex items-center gap-3 text-white">
-                <input type="checkbox" checked={form.inStock} onChange={e => setForm({...form, inStock: e.target.checked})} className="accent-primary w-4 h-4" />
+                <input
+                  type="checkbox"
+                  checked={form.inStock}
+                  onChange={e => setForm({ ...form, inStock: e.target.checked })}
+                  disabled={form.stockQuantity !== ''}
+                  className="accent-primary w-4 h-4"
+                />
                 In Stock
+                {form.stockQuantity !== '' && (
+                  <span className="text-gray-500 text-xs">(driven by stock quantity)</span>
+                )}
+              </label>
+              <label className="flex items-center gap-3 text-white">
+                <input
+                  type="checkbox"
+                  checked={form.featured}
+                  onChange={e => setForm({ ...form, featured: e.target.checked })}
+                  className="accent-primary w-4 h-4"
+                />
+                Featured on homepage
               </label>
               <button onClick={handleSave} className="w-full bg-primary hover:bg-primary/80 text-white py-3 rounded-xl font-semibold transition">
                 {editing ? 'Update Product' : 'Add Product'}
