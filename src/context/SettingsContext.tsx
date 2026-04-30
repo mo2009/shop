@@ -62,14 +62,33 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'settings', 'site'), (snap) => {
-      if (snap.exists()) {
-        setSettings(snap.data() as Settings);
-      } else {
-        setSettings(null);
-      }
-      setLoading(false);
-    });
+    const unsub = onSnapshot(
+      doc(db, 'settings', 'site'),
+      snap => {
+        if (snap.exists()) {
+          const data = snap.data() as Settings;
+          setSettings(data);
+          if (typeof window !== 'undefined') {
+            // eslint-disable-next-line no-console
+            console.debug('[settings] loaded', {
+              maintenanceMode: data.maintenanceMode,
+              maintenanceModeType: typeof data.maintenanceMode,
+            });
+          }
+        } else {
+          setSettings(null);
+        }
+        setLoading(false);
+      },
+      err => {
+        // eslint-disable-next-line no-console
+        console.error(
+          '[settings] failed to read settings/site — check Firestore rules',
+          err,
+        );
+        setLoading(false);
+      },
+    );
     return () => unsub();
   }, []);
 
