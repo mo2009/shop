@@ -18,6 +18,8 @@ export default function AdminOrders() {
     const data = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .filter((o: any) => {
+        // Honor the dashboard "Delete All Orders" soft-clear flag.
+        if (o.hiddenFromAdmin === true) return false;
         // Hide instapay orders that are not confirmed yet
         if (o.paymentMethod === 'instapay' && o.paymentStatus !== 'confirmed') return false;
         return true;

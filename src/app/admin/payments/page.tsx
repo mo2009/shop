@@ -18,7 +18,7 @@ export default function AdminPayments() {
     const snap = await getDocs(collection(db, 'orders'));
     const instapayOrders = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .filter((o: any) => o.paymentMethod === 'instapay')
+      .filter((o: any) => o.paymentMethod === 'instapay' && o.hiddenFromAdmin !== true)
       .sort((a: any, b: any) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
     setOrders(instapayOrders);
     setLoading(false);

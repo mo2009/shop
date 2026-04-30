@@ -12,6 +12,7 @@ type OrderRow = {
   total?: number;
   orderStatus?: string;
   paymentStatus?: string;
+  hiddenFromAdmin?: boolean;
   createdAt?: { seconds?: number };
 };
 
@@ -36,6 +37,7 @@ export default function AdminCustomers() {
         const rows = snap.docs.map(d => d.data() as OrderRow);
         const map = new Map<string, Customer>();
         rows.forEach(o => {
+          if (o.hiddenFromAdmin === true) return;
           // Skip cancelled or rejected orders for spend calculations.
           if (o.orderStatus === 'cancelled') return;
           const key = o.userId || o.userEmail || '';
