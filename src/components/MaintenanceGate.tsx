@@ -13,7 +13,24 @@ export default function MaintenanceGate({ children }: { children: ReactNode }) {
   const { userProfile, loading: authLoading } = useAuth();
   const pathname = usePathname() || '/';
 
-  const maintenanceOn = !!settings?.maintenanceMode;
+  // Treat both real booleans and the string "true" as on so we don't
+  // get tripped up by a field accidentally created as a string in
+  // Firestore.
+  const raw = settings?.maintenanceMode as unknown;
+  const maintenanceOn =
+    raw === true || (typeof raw === 'string' && raw.toLowerCase() === 'true');
+
+  if (typeof window !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.debug('[MaintenanceGate]', {
+      maintenanceOn,
+      raw,
+      settingsLoading,
+      authLoading,
+      isAdmin: userProfile?.isAdmin === true,
+      pathname,
+    });
+  }
 
   // Don't gate while we're still figuring out who the user is — avoids a
   // flash of the maintenance screen for admins on first paint.
