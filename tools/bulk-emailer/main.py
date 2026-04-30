@@ -1,10 +1,10 @@
-"""Bulk Outlook email sender — desktop GUI.
+"""Bulk Outlook email sender — desktop GUI (Outlook COM backend).
 
 A simple, single-window application for sending marketing emails through
-an Outlook business / Office 365 account. Designed to be runnable by a
-non-technical user.
+the user's locally-installed Microsoft Outlook desktop app. Designed to
+be runnable by a non-technical user.
 
-Run: ``python main.py``
+Run on Windows: ``python main.py``
 """
 
 from __future__ import annotations
@@ -19,7 +19,13 @@ from tkcalendar import DateEntry
 
 import storage
 from excel_import import EMAIL_REGEX, extract_emails
-from sender import EmailJob, SmtpConfig, send
+from sender import (
+    EmailJob,
+    OutlookAccount,
+    OutlookUnavailableError,
+    list_accounts,
+    send,
+)
 
 APP_TITLE = "Outlook Bulk Emailer"
 APP_VERSION = "1.0.0"
@@ -51,12 +57,13 @@ class BulkEmailerApp(ctk.CTk):
         ctk.set_appearance_mode(settings.get("theme", "system"))
         ctk.set_default_color_theme("blue")
 
-        self._scheduled_timer: threading.Timer | None = None
         self._sending_lock = threading.Lock()
         self._attachments: list[str] = []
+        self._outlook_accounts: list[OutlookAccount] = []
 
         self._build_ui()
         self._apply_initial_settings()
+        self._refresh_outlook_accounts(quiet=True)
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -72,7 +79,7 @@ class BulkEmailerApp(ctk.CTk):
         scrollable = ctk.CTkScrollableFrame(outer, fg_color="transparent")
         scrollable.pack(fill="both", expand=True, pady=(8, 0))
 
-        self._build_account_section(scrollable)
+        self._build_sender_section(scrollable)
         self._build_recipients_section(scrollable)
         self._build_subject_section(scrollable)
         self._build_body_section(scrollable)
@@ -115,65 +122,69 @@ class BulkEmailerApp(ctk.CTk):
         body.pack(fill="x", padx=12, pady=(0, 12))
         return body
 
-    # -- Account ------------------------------------------------------
-    def _build_account_section(self, parent: ctk.CTkFrame) -> None:
-        body = self._section(parent, "1. Outlook account")
-        settings = self.state_data["settings"]
-
-        grid = ctk.CTkFrame(body, fg_color="transparent")
-        grid.pack(fill="x")
-        grid.columnconfigure(1, weight=1)
-        grid.columnconfigure(3, weight=1)
-
-        ctk.CTkLabel(grid, text="Your email:").grid(row=0, column=0, sticky="w", padx=(0, 6), pady=4)
-        self.from_email_var = ctk.StringVar(value=settings.get("from_email", ""))
-        ctk.CTkEntry(grid, textvariable=self.from_email_var).grid(
-            row=0, column=1, columnspan=3, sticky="ew", pady=4
-        )
-
-        ctk.CTkLabel(grid, text="Password:").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=4)
-        self.password_var = ctk.StringVar(value=settings.get("saved_password", ""))
-        self.password_entry = ctk.CTkEntry(grid, textvariable=self.password_var, show="•")
-        self.password_entry.grid(row=1, column=1, sticky="ew", pady=4)
-
-        self.show_password_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            grid,
-            text="Show",
-            variable=self.show_password_var,
-            command=self._toggle_password_visibility,
-        ).grid(row=1, column=2, padx=(8, 0), pady=4)
-
-        self.remember_password_var = ctk.BooleanVar(value=settings.get("remember_password", False))
-        ctk.CTkCheckBox(
-            grid,
-            text="Remember on this computer",
-            variable=self.remember_password_var,
-        ).grid(row=1, column=3, padx=(8, 0), pady=4, sticky="w")
-
-        ctk.CTkLabel(grid, text="SMTP host:").grid(row=2, column=0, sticky="w", padx=(0, 6), pady=4)
-        self.smtp_host_var = ctk.StringVar(value=settings.get("smtp_host", "smtp.office365.com"))
-        ctk.CTkEntry(grid, textvariable=self.smtp_host_var).grid(row=2, column=1, sticky="ew", pady=4)
-
-        ctk.CTkLabel(grid, text="Port:").grid(row=2, column=2, sticky="e", padx=(8, 6), pady=4)
-        self.smtp_port_var = ctk.StringVar(value=str(settings.get("smtp_port", 587)))
-        ctk.CTkEntry(grid, textvariable=self.smtp_port_var, width=80).grid(
-            row=2, column=3, sticky="w", pady=4
-        )
+    # -- Sender (Outlook account) ------------------------------------
+    def _build_sender_section(self, parent: ctk.CTkFrame) -> None:
+        body = self._section(parent, "1. Sending account")
 
         ctk.CTkLabel(
             body,
             text=(
-                "Tip: if your account uses MFA, generate an app password at "
-                "https://account.microsoft.com/security and use it here."
+                "The program sends through your locally-installed Outlook desktop "
+                "app, so no password is needed. Pick which Outlook account to send "
+                "from (use Default to use whichever account Outlook is set to)."
             ),
             text_color=("gray40", "gray70"),
             wraplength=820,
             justify="left",
-        ).pack(anchor="w", pady=(6, 0))
+        ).pack(anchor="w")
 
-    def _toggle_password_visibility(self) -> None:
-        self.password_entry.configure(show="" if self.show_password_var.get() else "•")
+        row = ctk.CTkFrame(body, fg_color="transparent")
+        row.pack(fill="x", pady=(8, 0))
+        ctk.CTkLabel(row, text="From account:").pack(side="left", padx=(0, 6))
+        self.account_combo = ttk.Combobox(row, values=["Default"], state="readonly", width=60)
+        self.account_combo.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(
+            row,
+            text="Refresh",
+            command=lambda: self._refresh_outlook_accounts(quiet=False),
+            width=90,
+            fg_color="transparent",
+            border_width=1,
+        ).pack(side="left", padx=6)
+
+    def _refresh_outlook_accounts(self, *, quiet: bool) -> None:
+        try:
+            self._outlook_accounts = list_accounts()
+        except OutlookUnavailableError as exc:
+            self._outlook_accounts = []
+            self.account_combo.configure(values=["Default (Outlook not detected)"])
+            self.account_combo.set("Default (Outlook not detected)")
+            if not quiet:
+                messagebox.showerror("Outlook not available", str(exc))
+            self._log(f"Outlook unavailable: {exc}")
+            return
+
+        labels = ["Default"] + [str(a) for a in self._outlook_accounts]
+        self.account_combo.configure(values=labels)
+
+        target_smtp = self.state_data["settings"].get("account_smtp", "")
+        chosen = "Default"
+        if target_smtp:
+            for account, label in zip(self._outlook_accounts, labels[1:]):
+                if account.smtp_address.lower() == target_smtp.lower():
+                    chosen = label
+                    break
+        self.account_combo.set(chosen)
+        self._log(f"Detected {len(self._outlook_accounts)} Outlook account(s)")
+
+    def _selected_account_smtp(self) -> str:
+        label = self.account_combo.get()
+        if not label or label.startswith("Default"):
+            return ""
+        for account in self._outlook_accounts:
+            if str(account) == label:
+                return account.smtp_address
+        return ""
 
     # -- Recipients ---------------------------------------------------
     def _build_recipients_section(self, parent: ctk.CTkFrame) -> None:
@@ -448,7 +459,7 @@ class BulkEmailerApp(ctk.CTk):
         ).pack(anchor="w")
         ctk.CTkRadioButton(
             body,
-            text="Send at the time below",
+            text="Send at the time below (uses Outlook's deferred delivery)",
             variable=self.schedule_mode_var,
             value="later",
             command=self._update_schedule_state,
@@ -496,8 +507,14 @@ class BulkEmailerApp(ctk.CTk):
 
         ctk.CTkLabel(
             body,
-            text="Note: leave the program running until the scheduled time.",
+            text=(
+                "Note: Outlook itself releases scheduled mail from the Outbox at the "
+                "chosen time, so you can close this program afterwards — but Outlook "
+                "must be running on this PC at that time."
+            ),
             text_color=("gray40", "gray70"),
+            wraplength=820,
+            justify="left",
         ).pack(anchor="w", pady=(8, 0))
 
         self._update_schedule_state()
@@ -525,16 +542,6 @@ class BulkEmailerApp(ctk.CTk):
             height=40,
         )
         self.send_button.pack(side="left")
-
-        self.cancel_button = ctk.CTkButton(
-            bar,
-            text="Cancel scheduled send",
-            command=self._cancel_scheduled,
-            fg_color="transparent",
-            border_width=1,
-            state="disabled",
-        )
-        self.cancel_button.pack(side="left", padx=8)
 
         self.status_label = ctk.CTkLabel(bar, text="Idle", text_color=("gray30", "gray70"))
         self.status_label.pack(side="left", padx=12)
@@ -572,50 +579,21 @@ class BulkEmailerApp(ctk.CTk):
 
     def _persist_settings(self) -> None:
         s = self.state_data["settings"]
-        s["from_email"] = self.from_email_var.get().strip()
-        s["smtp_host"] = self.smtp_host_var.get().strip() or "smtp.office365.com"
-        try:
-            s["smtp_port"] = int(self.smtp_port_var.get())
-        except ValueError:
-            s["smtp_port"] = 587
+        s["account_smtp"] = self._selected_account_smtp()
         s["send_mode"] = self.send_mode_var.get()
-        s["remember_password"] = bool(self.remember_password_var.get())
-        s["saved_password"] = self.password_var.get() if s["remember_password"] else ""
         storage.save(self.state_data)
 
     # -- Send entry point --------------------------------------------
     def _on_send_clicked(self) -> None:
         self._persist_settings()
         try:
-            smtp, job = self._build_smtp_and_job()
+            job, scheduled = self._build_job()
         except ValueError as exc:
             messagebox.showerror("Cannot send", str(exc))
             return
+        self._launch_send(job, scheduled)
 
-        if self.schedule_mode_var.get() == "later":
-            target = self._scheduled_datetime()
-            if target is None:
-                return
-            delay = (target - dt.datetime.now()).total_seconds()
-            if delay <= 0:
-                messagebox.showerror("Invalid time", "The scheduled time is in the past.")
-                return
-            self._schedule_send(smtp, job, target, delay)
-        else:
-            self._launch_send(smtp, job)
-
-    def _build_smtp_and_job(self) -> tuple[SmtpConfig, EmailJob]:
-        from_email = self.from_email_var.get().strip()
-        if not from_email:
-            raise ValueError("Enter your Outlook email address.")
-        password = self.password_var.get()
-        if not password:
-            raise ValueError("Enter your password (or app password).")
-        try:
-            port = int(self.smtp_port_var.get())
-        except ValueError as exc:
-            raise ValueError("SMTP port must be a number.") from exc
-
+    def _build_job(self) -> tuple[EmailJob, dt.datetime | None]:
         recipients = _parse_recipients(self.recipients_text.get("1.0", "end"))
         if not recipients:
             raise ValueError("Add at least one recipient email address.")
@@ -628,21 +606,23 @@ class BulkEmailerApp(ctk.CTk):
         if not body_text:
             raise ValueError("The body is empty.")
 
-        smtp = SmtpConfig(
-            host=self.smtp_host_var.get().strip() or "smtp.office365.com",
-            port=port,
-            username=from_email,
-            password=password,
-            use_starttls=True,
-        )
+        scheduled: dt.datetime | None = None
+        if self.schedule_mode_var.get() == "later":
+            scheduled = self._scheduled_datetime()
+            if scheduled is None:
+                raise ValueError("Pick a valid date and time.")
+            if scheduled <= dt.datetime.now():
+                raise ValueError("The scheduled time is in the past.")
+
         job = EmailJob(
             recipients=recipients,
             subject=subject,
             body=body_text,
             attachments=list(self._attachments),
             mode=self.send_mode_var.get(),
+            account_smtp=self._selected_account_smtp(),
         )
-        return smtp, job
+        return job, scheduled
 
     def _scheduled_datetime(self) -> dt.datetime | None:
         try:
@@ -650,71 +630,70 @@ class BulkEmailerApp(ctk.CTk):
             hour = int(self.hour_var.get())
             minute = int(self.minute_var.get())
         except (ValueError, tk.TclError):
-            messagebox.showerror("Invalid time", "Pick a valid date and time.")
             return None
         return dt.datetime.combine(date_value, dt.time(hour=hour, minute=minute))
 
-    def _schedule_send(
-        self,
-        smtp: SmtpConfig,
-        job: EmailJob,
-        target: dt.datetime,
-        delay: float,
-    ) -> None:
-        if self._scheduled_timer is not None:
-            self._scheduled_timer.cancel()
-        self._scheduled_timer = threading.Timer(delay, lambda: self._launch_send(smtp, job))
-        self._scheduled_timer.daemon = True
-        self._scheduled_timer.start()
-        self.cancel_button.configure(state="normal")
-        self.send_button.configure(state="disabled")
-        self.status_label.configure(text=f"Scheduled for {target:%Y-%m-%d %H:%M}")
-        self._log(
-            f"Scheduled send for {target:%Y-%m-%d %H:%M} "
-            f"({len(job.recipients)} recipient(s), mode={job.mode})"
-        )
-
-    def _cancel_scheduled(self) -> None:
-        if self._scheduled_timer is not None:
-            self._scheduled_timer.cancel()
-            self._scheduled_timer = None
-        self.cancel_button.configure(state="disabled")
-        self.send_button.configure(state="normal")
-        self.status_label.configure(text="Scheduled send cancelled")
-        self._log("Scheduled send cancelled")
-
-    def _launch_send(self, smtp: SmtpConfig, job: EmailJob) -> None:
+    def _launch_send(self, job: EmailJob, scheduled: dt.datetime | None) -> None:
         if not self._sending_lock.acquire(blocking=False):
             return
-        self.after(0, lambda: self.send_button.configure(state="disabled"))
-        self.after(0, lambda: self.cancel_button.configure(state="disabled"))
-        self.after(0, lambda: self.status_label.configure(text="Sending…"))
-        self.after(0, lambda: self._log(f"Starting send to {len(job.recipients)} recipient(s)"))
+        self.send_button.configure(state="disabled")
+        if scheduled:
+            self.status_label.configure(text=f"Queueing for {scheduled:%Y-%m-%d %H:%M}…")
+            self._log(
+                f"Queueing {len(job.recipients)} message(s) with deferred delivery "
+                f"for {scheduled:%Y-%m-%d %H:%M} (mode={job.mode})"
+            )
+        else:
+            self.status_label.configure(text="Sending…")
+            self._log(f"Sending to {len(job.recipients)} recipient(s) (mode={job.mode})")
 
-        thread = threading.Thread(target=self._do_send, args=(smtp, job), daemon=True)
+        thread = threading.Thread(
+            target=self._do_send, args=(job, scheduled), daemon=True
+        )
         thread.start()
 
-    def _do_send(self, smtp: SmtpConfig, job: EmailJob) -> None:
+    def _do_send(self, job: EmailJob, scheduled: dt.datetime | None) -> None:
         try:
             sent, failed = send(
-                smtp,
                 job,
+                scheduled_time=scheduled,
                 progress=lambda msg: self.after(0, self._log, msg),
             )
-            self.after(0, self._on_send_finished, sent, failed, None)
+            self.after(0, self._on_send_finished, sent, failed, scheduled, None)
         except Exception as exc:  # pragma: no cover - GUI path
-            self.after(0, self._on_send_finished, 0, len(job.recipients), exc)
+            self.after(0, self._on_send_finished, 0, len(job.recipients), scheduled, exc)
         finally:
             self._sending_lock.release()
 
-    def _on_send_finished(self, sent: int, failed: int, error: Exception | None) -> None:
+    def _on_send_finished(
+        self,
+        sent: int,
+        failed: int,
+        scheduled: dt.datetime | None,
+        error: Exception | None,
+    ) -> None:
         self.send_button.configure(state="normal")
-        self.cancel_button.configure(state="disabled")
-        self._scheduled_timer = None
         if error is not None:
             self.status_label.configure(text="Failed")
             self._log(f"Send failed: {error}")
             messagebox.showerror("Send failed", str(error))
+            return
+        if scheduled is not None:
+            self.status_label.configure(
+                text=f"{sent} message(s) queued for {scheduled:%Y-%m-%d %H:%M}"
+            )
+            self._log(
+                f"Queued {sent} message(s) in Outlook Outbox for "
+                f"{scheduled:%Y-%m-%d %H:%M} (failed: {failed})"
+            )
+            messagebox.showinfo(
+                "Scheduled",
+                (
+                    f"{sent} message(s) are sitting in Outlook's Outbox and will be "
+                    f"sent at {scheduled:%Y-%m-%d %H:%M}.\n\nKeep Outlook running on "
+                    "this PC so the messages can leave the Outbox at that time."
+                ),
+            )
             return
         self.status_label.configure(text=f"Done. Sent {sent}, failed {failed}.")
         self._log(f"Finished. Sent: {sent}, failed: {failed}")
@@ -734,14 +713,6 @@ class BulkEmailerApp(ctk.CTk):
         self.log_text.configure(state="disabled")
 
     def _on_close(self) -> None:
-        if self._scheduled_timer is not None:
-            if not messagebox.askyesno(
-                "Pending scheduled send",
-                "A scheduled send is still pending and will be lost if you close the program now. "
-                "Close anyway?",
-            ):
-                return
-            self._scheduled_timer.cancel()
         self._persist_settings()
         self.destroy()
 

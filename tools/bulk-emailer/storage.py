@@ -77,11 +77,7 @@ def save(state: dict[str, Any]) -> None:
 
 def _default_settings() -> dict[str, Any]:
     return {
-        "smtp_host": "smtp.office365.com",
-        "smtp_port": 587,
-        "from_email": "",
-        "remember_password": False,
-        "saved_password": "",
+        "account_smtp": "",  # Empty = use Outlook's default account.
         "theme": "system",  # "light" | "dark" | "system"
         "send_mode": "individual",  # "individual" | "cc"
     }
