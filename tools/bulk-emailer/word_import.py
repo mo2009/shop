@@ -196,6 +196,41 @@ def _hyperlink_href(hyperlink_el, document: DocType) -> str | None:
     return f"#{anchor}" if anchor else None
 
 
+_OOXML_OFF_VALUES = {"0", "false", "off"}
+
+
+def _is_on_toggle(el) -> bool:
+    """Return ``True`` if a boolean OOXML property element is enabled.
+
+    In OOXML, a property like ``<w:b/>`` (or ``<w:b w:val="true"/>``)
+    means the toggle is **on**, but ``<w:b w:val="false"/>`` (or
+    ``"0"`` / ``"off"``) means it is **explicitly off** — typically
+    used to override an inherited style (e.g. non-bold text inside a
+    Heading paragraph). Treating those as on produces wrong markup.
+    """
+    if el is None:
+        return False
+    val = el.get(qn("w:val"))
+    if val is None:
+        return True
+    return val.strip().lower() not in _OOXML_OFF_VALUES
+
+
+def _is_underline_on(el) -> bool:
+    """Underline uses ``w:val`` to encode the line pattern, not a bool.
+
+    ``"none"`` means no underline; any other value (or absence) means
+    "draw an underline of that pattern". For our purposes we just want
+    to know whether the run is underlined at all.
+    """
+    if el is None:
+        return False
+    val = el.get(qn("w:val"))
+    if val is None:
+        return True
+    return val.strip().lower() != "none"
+
+
 def _render_run(
     r_el,
     document: DocType,
@@ -223,13 +258,13 @@ def _render_run(
     if rPr is None:
         return text
 
-    if rPr.find(qn("w:b")) is not None:
+    if _is_on_toggle(rPr.find(qn("w:b"))):
         text = f"<b>{text}</b>"
-    if rPr.find(qn("w:i")) is not None:
+    if _is_on_toggle(rPr.find(qn("w:i"))):
         text = f"<i>{text}</i>"
-    if rPr.find(qn("w:u")) is not None:
+    if _is_underline_on(rPr.find(qn("w:u"))):
         text = f"<u>{text}</u>"
-    if rPr.find(qn("w:strike")) is not None:
+    if _is_on_toggle(rPr.find(qn("w:strike"))):
         text = f"<s>{text}</s>"
 
     css: list[str] = []
