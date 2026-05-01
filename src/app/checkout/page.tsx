@@ -72,7 +72,7 @@ export default function CheckoutPage() {
       const c = { id: snap.docs[0].id, ...snap.docs[0].data() } as Coupon;
       const v = validateCoupon(c, total);
       if (!v.ok) {
-        toast.error(v.reason);
+        toast.error(v.reason || 'Coupon is not valid');
         setCoupon(null);
         return;
       }
