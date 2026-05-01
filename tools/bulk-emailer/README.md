@@ -31,6 +31,20 @@ whichever account is already signed in to Outlook on the PC — there is
   (otherwise the program uses Outlook's default account).
 - Subject and body **presets**: pick from a list, save your own, delete
   the ones you don't need.
+- **Per-recipient subjects from Excel** (toggle): turn on the *"Use
+  subjects from Excel"* switch, then on import the program asks which
+  column holds the email addresses and which column holds the
+  subjects. Each recipient is then sent with their own subject. The
+  Subject preset above stays as the fallback for any recipient that
+  doesn't have a subject in the file (or for CC / Auto envelopes that
+  pool many recipients into one message — those always use the
+  shared subject). Toggle off to revert to one shared subject for
+  everyone.
+- **Wait between sends**: optional delay (in seconds) inserted between
+  consecutive Outlook `Send()` calls — useful to avoid blasting your
+  mail server back-to-back. For scheduled jobs the delay is applied
+  as an offset on each subsequent message's `DeferredDeliveryTime`,
+  so the Outbox releases them staggered instead of all at once.
 - **Rich-text body (HTML)**: a Format toolbar above the body editor adds
   **Bold / Italic / Underline / Color / Link / Image / Preview** buttons.
   Bold / Italic / Underline / Color wrap the text you've selected.

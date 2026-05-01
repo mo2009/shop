@@ -93,6 +93,16 @@ def _default_settings() -> dict[str, Any]:
         # as plain text. Default to HTML mode since the toolbar in the
         # body editor produces HTML markup.
         "is_html_body": True,
+        # When True the user wants the program to read a per-recipient
+        # subject from a column of the Excel file they import. The
+        # actual mapping of email -> subject is held in memory only;
+        # this flag just remembers the toggle position between runs.
+        "use_excel_subjects": False,
+        # Wait this many seconds between consecutive sends. 0 = no
+        # wait. For scheduled sends each subsequent message's
+        # DeferredDeliveryTime is offset by N * delay so the Outbox
+        # releases them staggered instead of all at once.
+        "delay_between_sends_seconds": 0,
     }
 
 

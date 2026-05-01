@@ -13,6 +13,7 @@ can import it on non-Windows machines for development or static checks.
 from __future__ import annotations
 
 import datetime as dt
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -50,6 +51,15 @@ class EmailJob:
     # an ``<img src="cid:<cid>">`` reference in the HTML body renders
     # inside the message rather than as a separate attachment.
     inline_images: dict[str, str] = field(default_factory=dict)
+    # Optional per-recipient subject override. Keyed by lowercased
+    # email address; the lookup is done against the *first* address in
+    # each envelope's To list. When the lookup misses, the message
+    # falls back to ``subject``.
+    subject_overrides: dict[str, str] = field(default_factory=dict)
+    # Pause this many seconds between consecutive Send() calls. For
+    # scheduled jobs the Nth message's DeferredDeliveryTime is
+    # offset by N * delay so the Outbox flushes them staggered.
+    delay_seconds: float = 0.0
 
 
 ProgressCallback = Callable[[str], None]
@@ -234,6 +244,7 @@ def _send_inner(win32com_client, job, scheduled_time, log):
     sent = 0
     failed = 0
     total = len(job.envelopes)
+    delay = max(0.0, float(job.delay_seconds or 0.0))
 
     for index, envelope in enumerate(job.envelopes, start=1):
         to_csv = "; ".join(envelope.to)
@@ -247,7 +258,9 @@ def _send_inner(win32com_client, job, scheduled_time, log):
             log(f"[{index}/{total}] Composing for {to_csv}")
         try:
             mail = outlook.CreateItem(_OL_MAIL_ITEM)
-            mail.Subject = job.subject
+            primary = envelope.to[0].lower() if envelope.to else ""
+            subject = job.subject_overrides.get(primary, job.subject)
+            mail.Subject = subject
             if job.is_html:
                 mail.HTMLBody = job.body
             else:
@@ -264,12 +277,23 @@ def _send_inner(win32com_client, job, scheduled_time, log):
             if job.is_html and job.inline_images:
                 _attach_inline_images(mail, job.inline_images, log)
             if scheduled_time is not None:
-                mail.DeferredDeliveryTime = scheduled_time
+                # Stagger scheduled sends by ``delay`` so a 5-minute
+                # gap (for example) is preserved in the Outbox.
+                offset = dt.timedelta(seconds=delay * (index - 1))
+                mail.DeferredDeliveryTime = scheduled_time + offset
             mail.Send()
             sent += 1
         except Exception as exc:
             failed += 1
             log(f"  -> failed: {exc}")
+
+        # Sleep between *immediate* sends so we don't blast Outlook
+        # back-to-back. We don't sleep after the last message and we
+        # don't sleep when scheduling — there each mail's
+        # DeferredDeliveryTime already has the offset applied.
+        if scheduled_time is None and delay > 0 and index < total:
+            log(f"  waiting {delay:.0f}s before next send…")
+            time.sleep(delay)
 
     if scheduled_time is not None:
         log(
