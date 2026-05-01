@@ -345,25 +345,72 @@ def _render_table(
     register_image: ImageRegistrar,
     warnings: list[str],
 ) -> str:
-    rows: list[str] = []
-    for tr in table.rows:
-        cells: list[str] = []
-        for tc in tr.cells:
-            inner_parts: list[str] = []
-            for p in tc.paragraphs:
-                inner_parts.append(
-                    '<p style="margin:0">'
-                    + (_render_runs(p, document, register_image, warnings) or "&nbsp;")
-                    + "</p>"
-                )
-            cells.append(
-                '<td style="border:1px solid #cccccc;padding:6px;vertical-align:top">'
-                + "".join(inner_parts)
+    """Render a Word table to HTML, honouring horizontal and vertical merges.
+
+    python-docx's ``row.cells`` helpfully repeats the same ``_Cell``
+    once per grid column it spans (so a 3-wide merged cell shows up as
+    three identical cells), and follows ``vMerge="continue"`` to the
+    cell above (so vertically merged cells get the upper cell's
+    contents duplicated row after row). Iterating the underlying
+    ``<w:tc>`` elements directly side-steps both, after which we can
+    emit proper ``colspan`` / ``rowspan`` attributes.
+    """
+    # Build a per-row layout: each entry is (tc, grid_offset, grid_span, vmerge)
+    # where vmerge is "continue", "restart", or None.
+    rows_xml = list(table._tbl.iter(qn("w:tr")))
+    layout: list[list[tuple[object, int, int, object]]] = []
+    for tr in rows_xml:
+        row: list[tuple[object, int, int, object]] = []
+        offset = 0
+        for tc in tr.findall(qn("w:tc")):
+            span = max(1, getattr(tc, "grid_span", 1) or 1)
+            vmerge = getattr(tc, "vMerge", None)
+            row.append((tc, offset, span, vmerge))
+            offset += span
+        layout.append(row)
+
+    rows_html: list[str] = []
+    for row_idx, row in enumerate(layout):
+        cell_html: list[str] = []
+        for tc, off, span, vmerge in row:
+            if vmerge == "continue":
+                # This cell is the lower half of a vertical merge — its
+                # content was already rendered by the originating cell
+                # via rowspan, so skip it here.
+                continue
+            # Walk subsequent rows to find how far this vertical merge
+            # extends. Only kicks in when vmerge=="restart"; for None
+            # the loop body never executes because no row below will
+            # have a continuation at this offset.
+            rowspan = 1
+            for r2 in range(row_idx + 1, len(layout)):
+                if any(
+                    o2 == off and vm2 == "continue" for (_, o2, _, vm2) in layout[r2]
+                ):
+                    rowspan += 1
+                else:
+                    break
+
+            cell = _Cell(tc, table)
+            inner = "".join(
+                '<p style="margin:0">'
+                + (_render_runs(p, document, register_image, warnings) or "&nbsp;")
+                + "</p>"
+                for p in cell.paragraphs
+            )
+            attrs = ""
+            if span > 1:
+                attrs += f' colspan="{span}"'
+            if rowspan > 1:
+                attrs += f' rowspan="{rowspan}"'
+            cell_html.append(
+                f'<td{attrs} style="border:1px solid #cccccc;padding:6px;vertical-align:top">'
+                + inner
                 + "</td>"
             )
-        rows.append(f"<tr>{''.join(cells)}</tr>")
+        rows_html.append(f"<tr>{''.join(cell_html)}</tr>")
     return (
         '<table style="border-collapse:collapse;border:1px solid #cccccc">'
-        + "".join(rows)
+        + "".join(rows_html)
         + "</table>"
     )

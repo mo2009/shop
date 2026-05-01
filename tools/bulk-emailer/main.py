@@ -1553,11 +1553,26 @@ class BulkEmailerApp(ctk.CTk):
             )
             return
 
+        # Ask the user before doing any conversion work — that way a
+        # cancelled import doesn't leak picture files into ~/.bulk_emailer/
+        # or CIDs into self._inline_images.
+        if self._has_body_text() and not messagebox.askyesno(
+            "Replace current body?",
+            "The body editor already has text in it. Replace it with the "
+            "imported Word document?",
+        ):
+            return
+
         # Stage Word-embedded pictures into the inline-image cache so they
         # ride out as CID attachments at send time, exactly like images
         # inserted via the toolbar's 🖼 button.
         media_dir = Path(storage.data_dir()) / "word_media"
         media_dir.mkdir(parents=True, exist_ok=True)
+
+        # Track everything written so we can roll back on a converter
+        # error mid-document.
+        registered_cids: list[str] = []
+        registered_paths: list[Path] = []
 
         def _register(blob: bytes, ext: str) -> str:
             cid = f"img{self._next_cid}"
@@ -1566,22 +1581,24 @@ class BulkEmailerApp(ctk.CTk):
             out_path = media_dir / f"{cid}.{ext_clean}"
             out_path.write_bytes(blob)
             self._inline_images[cid] = str(out_path.resolve())
+            registered_cids.append(cid)
+            registered_paths.append(out_path)
             return cid
 
         try:
             result = convert_docx_to_html(path, _register)
         except Exception as exc:  # noqa: BLE001 — surface whatever the parser raised
+            for cid in registered_cids:
+                self._inline_images.pop(cid, None)
+            for img_path in registered_paths:
+                try:
+                    img_path.unlink()
+                except OSError:
+                    pass
             messagebox.showerror(
                 "Couldn't read the Word file",
                 f"Failed to convert '{path.name}':\n\n{exc}",
             )
-            return
-
-        if self._has_body_text() and not messagebox.askyesno(
-            "Replace current body?",
-            "The body editor already has text in it. Replace it with the "
-            "imported Word document?",
-        ):
             return
 
         # Switch into HTML mode automatically — the converted output is HTML.
