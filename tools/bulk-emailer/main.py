@@ -38,7 +38,7 @@ from sender import (
 )
 
 APP_TITLE = "Outlook Bulk Emailer"
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 
 _CID_REGEX = re.compile(r'cid:([A-Za-z0-9_-]+)')
 _HTML_TAG_REGEX = re.compile(r'<[^>]+>')
@@ -51,6 +51,21 @@ def _looks_like_html(text: str) -> bool:
 
 _BR_BEFORE_NEWLINE_REGEX = re.compile(r'<br\s*/?>\s*\Z', re.IGNORECASE)
 
+# Block-level tags that already define their own vertical spacing —
+# inserting an extra ``<br>`` between two of them produces an unwanted
+# double gap in Outlook. Imports from Word in particular emit one
+# block tag per line (``<p>``, ``<h1>``, ``<table>``, ``<ul>``, …),
+# so we must NOT add ``<br>`` at the end of a line that closes one
+# of those, or before a line that opens one.
+_BLOCK_CLOSE_REGEX = re.compile(
+    r'</(?:p|h[1-6]|div|ul|ol|li|table|thead|tbody|tr|td|th|blockquote|pre|figure|hr|br)\s*>\s*\Z',
+    re.IGNORECASE,
+)
+_BLOCK_OPEN_REGEX = re.compile(
+    r'^\s*<(?:p|h[1-6]|div|ul|ol|li|table|thead|tbody|tr|td|th|blockquote|pre|figure|hr|br)\b',
+    re.IGNORECASE,
+)
+
 
 def _newlines_to_br(body: str) -> str:
     """Insert ``<br>`` before every bare newline in ``body``.
@@ -60,6 +75,14 @@ def _newlines_to_br(body: str) -> str:
     silently disappear. This walks through the body line by line and
     appends ``<br>`` to each line that doesn't already end with one
     (so a ``<br>`` the user typed manually isn't doubled).
+
+    Lines that already end with a block-level closing tag (``</p>``,
+    ``</h1>``, ``</table>``, ``</ul>``, …) get no ``<br>`` appended,
+    and lines that *start* with a block-level opening tag don't get a
+    ``<br>`` inserted before them either. This keeps Word-imported
+    HTML — which emits one block element per line — from gaining a
+    spurious blank line between every paragraph, heading, list and
+    table boundary.
 
     Carriage returns are normalised to plain newlines first.
     """
@@ -71,7 +94,11 @@ def _newlines_to_br(body: str) -> str:
             # Last line: nothing more to break; append untouched.
             out.append(line)
             break
-        if _BR_BEFORE_NEWLINE_REGEX.search(line):
+        next_line = lines[index + 1]
+        already_breaks = _BR_BEFORE_NEWLINE_REGEX.search(line) is not None
+        ends_block = _BLOCK_CLOSE_REGEX.search(line) is not None
+        next_is_block = _BLOCK_OPEN_REGEX.search(next_line) is not None
+        if already_breaks or ends_block or next_is_block:
             out.append(line + '\n')
         else:
             out.append(line + '<br>\n')
@@ -530,8 +557,8 @@ class BulkEmailerApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
         self.title(f"{APP_TITLE} v{APP_VERSION}")
-        self.geometry("980x820")
-        self.minsize(900, 720)
+        self.geometry("1060x880")
+        self.minsize(960, 760)
 
         self.state_data = storage.load()
         settings = self.state_data["settings"]
@@ -584,54 +611,86 @@ class BulkEmailerApp(ctk.CTk):
         self._build_log_section(outer)
 
     def _build_header(self, parent: ctk.CTkFrame) -> None:
-        header = ctk.CTkFrame(parent, fg_color="transparent")
-        header.pack(fill="x")
-        title_block = ctk.CTkFrame(header, fg_color="transparent")
+        header = ctk.CTkFrame(
+            parent,
+            fg_color=("#1f6aa5", "#1f3b66"),
+            corner_radius=14,
+        )
+        header.pack(fill="x", pady=(0, 4))
+
+        inner = ctk.CTkFrame(header, fg_color="transparent")
+        inner.pack(fill="x", padx=20, pady=14)
+
+        title_block = ctk.CTkFrame(inner, fg_color="transparent")
         title_block.pack(side="left")
         ctk.CTkLabel(
             title_block,
-            text=APP_TITLE,
+            text=f"📧  {APP_TITLE}",
+            text_color="white",
             font=ctk.CTkFont(size=24, weight="bold"),
         ).pack(anchor="w")
         ctk.CTkLabel(
             title_block,
-            text=f"v{APP_VERSION} · sends through your local Outlook desktop",
-            text_color=("gray40", "gray70"),
+            text=f"v{APP_VERSION}  ·  sends through your local Outlook desktop",
+            text_color=("#d0e3f5", "#b8c8dc"),
             font=ctk.CTkFont(size=12),
-        ).pack(anchor="w")
+        ).pack(anchor="w", pady=(2, 0))
 
-        right = ctk.CTkFrame(header, fg_color="transparent")
+        right = ctk.CTkFrame(inner, fg_color="transparent")
         right.pack(side="right")
-        ctk.CTkLabel(right, text="Theme:").pack(side="left", padx=(0, 6))
+        ctk.CTkLabel(right, text="Theme", text_color="white").pack(side="left", padx=(0, 8))
         self.theme_var = ctk.StringVar(value=self.state_data["settings"].get("theme", "system"))
-        theme_menu = ctk.CTkOptionMenu(
+        theme_menu = ctk.CTkSegmentedButton(
             right,
             values=["light", "dark", "system"],
             variable=self.theme_var,
             command=self._on_theme_change,
-            width=110,
         )
         theme_menu.pack(side="left")
 
+    # Per-section accent strip colour. Matches the header, but rendered as
+    # a thin vertical bar on the left edge of every section card.
+    _SECTION_ACCENT = ("#1f6aa5", "#3b78b8")
+
     def _section(self, parent: ctk.CTkFrame, title: str, *, hint: str = "") -> ctk.CTkFrame:
-        wrapper = ctk.CTkFrame(parent)
-        wrapper.pack(fill="x", pady=6, padx=2)
+        wrapper = ctk.CTkFrame(
+            parent,
+            corner_radius=12,
+            border_width=1,
+            border_color=("#dddddd", "#2a2a2a"),
+        )
+        wrapper.pack(fill="x", pady=8, padx=2)
+
+        # Title row with a coloured accent strip on the left so the eye
+        # can find each section instantly even in a long scroll.
+        title_row = ctk.CTkFrame(wrapper, fg_color="transparent")
+        title_row.pack(fill="x", padx=14, pady=(12, 2))
+        accent = ctk.CTkFrame(
+            title_row,
+            width=4,
+            height=22,
+            fg_color=self._SECTION_ACCENT,
+            corner_radius=2,
+        )
+        accent.pack(side="left", padx=(0, 10))
+        accent.pack_propagate(False)
         ctk.CTkLabel(
-            wrapper,
+            title_row,
             text=title,
-            font=ctk.CTkFont(size=15, weight="bold"),
-        ).pack(anchor="w", padx=14, pady=(12, 2))
+            font=ctk.CTkFont(size=16, weight="bold"),
+        ).pack(side="left")
+
         if hint:
             ctk.CTkLabel(
                 wrapper,
                 text=hint,
                 text_color=("gray40", "gray70"),
-                wraplength=900,
+                wraplength=940,
                 justify="left",
                 font=ctk.CTkFont(size=12),
-            ).pack(anchor="w", padx=14)
+            ).pack(anchor="w", padx=28, pady=(0, 2))
         body = ctk.CTkFrame(wrapper, fg_color="transparent")
-        body.pack(fill="x", padx=14, pady=(8, 12))
+        body.pack(fill="x", padx=18, pady=(8, 14))
         return body
 
     # -- Sender (Outlook account) ------------------------------------
@@ -1332,6 +1391,7 @@ class BulkEmailerApp(ctk.CTk):
         _tool("🎨 Color", self._fmt_color, width=80).pack(side="left", padx=(10, 2), pady=4)
         _tool("🔗 Link", self._insert_link, width=80).pack(side="left", padx=2, pady=4)
         _tool("🖼 Image", self._insert_image, width=90).pack(side="left", padx=2, pady=4)
+        _tool("📄 From Word", self._import_word, width=120).pack(side="left", padx=2, pady=4)
         _tool("👁 Preview", self._open_html_preview, width=110).pack(side="left", padx=(10, 2), pady=4)
 
         self.is_html_var = ctk.BooleanVar(
@@ -1344,7 +1404,11 @@ class BulkEmailerApp(ctk.CTk):
             command=self._on_html_mode_toggled,
         ).pack(side="right", padx=10, pady=4)
 
-        self.body_text = ctk.CTkTextbox(body, height=200)
+        self.body_text = ctk.CTkTextbox(
+            body,
+            height=220,
+            font=ctk.CTkFont(family="Segoe UI", size=13),
+        )
         self.body_text.pack(fill="x", pady=(6, 0))
 
         # Friendly hint text underneath the editor.
@@ -1484,6 +1548,105 @@ class BulkEmailerApp(ctk.CTk):
             return
         preview = HtmlPreviewDialog(self, html_body=body_text, inline_images=self._inline_images)
         preview.focus_set()
+
+    def _import_word(self) -> None:
+        """Pick a ``.docx`` file, convert it to HTML, and load it into the body editor."""
+        path_str = filedialog.askopenfilename(
+            title="Pick a Word document to import",
+            filetypes=[
+                ("Word documents", "*.docx"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not path_str:
+            return
+        path = Path(path_str)
+        if path.suffix.lower() != ".docx":
+            messagebox.showerror(
+                "Unsupported file",
+                "Only .docx files are supported. If your file is .doc, "
+                "open it in Word and use 'Save As' to save it as .docx first.",
+            )
+            return
+
+        try:
+            from word_import import convert_docx_to_html
+        except ImportError as exc:
+            messagebox.showerror(
+                "Word import unavailable",
+                "The 'python-docx' package is missing. Install it with:\n\n"
+                "    pip install python-docx\n\n"
+                f"({exc})",
+            )
+            return
+
+        # Ask the user before doing any conversion work — that way a
+        # cancelled import doesn't leak picture files into ~/.bulk_emailer/
+        # or CIDs into self._inline_images.
+        if self._has_body_text() and not messagebox.askyesno(
+            "Replace current body?",
+            "The body editor already has text in it. Replace it with the "
+            "imported Word document?",
+        ):
+            return
+
+        # Stage Word-embedded pictures into the inline-image cache so they
+        # ride out as CID attachments at send time, exactly like images
+        # inserted via the toolbar's 🖼 button.
+        media_dir = Path(storage.data_dir()) / "word_media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+
+        # Track everything written so we can roll back on a converter
+        # error mid-document.
+        registered_cids: list[str] = []
+        registered_paths: list[Path] = []
+
+        def _register(blob: bytes, ext: str) -> str:
+            cid = f"img{self._next_cid}"
+            self._next_cid += 1
+            ext_clean = re.sub(r"[^A-Za-z0-9]", "", ext) or "png"
+            out_path = media_dir / f"{cid}.{ext_clean}"
+            out_path.write_bytes(blob)
+            self._inline_images[cid] = str(out_path.resolve())
+            registered_cids.append(cid)
+            registered_paths.append(out_path)
+            return cid
+
+        try:
+            result = convert_docx_to_html(path, _register)
+        except Exception as exc:  # noqa: BLE001 — surface whatever the parser raised
+            for cid in registered_cids:
+                self._inline_images.pop(cid, None)
+            for img_path in registered_paths:
+                try:
+                    img_path.unlink()
+                except OSError:
+                    pass
+            messagebox.showerror(
+                "Couldn't read the Word file",
+                f"Failed to convert '{path.name}':\n\n{exc}",
+            )
+            return
+
+        # Switch into HTML mode automatically — the converted output is HTML.
+        if not self.is_html_var.get():
+            self.is_html_var.set(True)
+            self._on_html_mode_toggled()
+
+        self.body_text.delete("1.0", "end")
+        self.body_text.insert("1.0", result.html)
+
+        image_count = sum(1 for line in result.html.splitlines() if "<img" in line)
+        msg = f"Imported '{path.name}' ({len(result.html):,} chars"
+        if image_count:
+            msg += f", {image_count} picture{'s' if image_count != 1 else ''}"
+        msg += ")."
+        self._log(msg)
+        if result.warnings:
+            self._log(f"  {len(result.warnings)} converter warning(s) — see Preview if anything looks off.")
+
+    def _has_body_text(self) -> bool:
+        return bool(self.body_text.get("1.0", "end").strip())
 
     def _body_preview_values(self) -> list[str]:
         return [self._preview(b) for b in self.state_data["bodies"]]
@@ -1702,18 +1865,28 @@ class BulkEmailerApp(ctk.CTk):
 
     # -- Actions ------------------------------------------------------
     def _build_actions_section(self, parent: ctk.CTkFrame) -> None:
-        bar = ctk.CTkFrame(parent)
+        # Sticky bar that lives outside the scroll area, so the Send
+        # button is always reachable without hunting for it.
+        bar = ctk.CTkFrame(
+            parent,
+            corner_radius=12,
+            border_width=1,
+            border_color=("#dddddd", "#2a2a2a"),
+        )
         bar.pack(fill="x", pady=(10, 0))
 
         self.send_button = ctk.CTkButton(
             bar,
-            text="Send",
+            text="📨   Send",
             command=self._on_send_clicked,
-            font=ctk.CTkFont(size=16, weight="bold"),
-            height=46,
-            width=180,
+            font=ctk.CTkFont(size=18, weight="bold"),
+            height=54,
+            width=240,
+            corner_radius=10,
+            fg_color=("#1f8c45", "#1f8c45"),
+            hover_color=("#19743a", "#19743a"),
         )
-        self.send_button.pack(side="left", padx=12, pady=10)
+        self.send_button.pack(side="left", padx=14, pady=12)
 
         self.status_label = ctk.CTkLabel(
             bar,
@@ -1721,19 +1894,37 @@ class BulkEmailerApp(ctk.CTk):
             text_color=("gray30", "gray70"),
             font=ctk.CTkFont(size=13),
         )
-        self.status_label.pack(side="left", padx=12)
+        self.status_label.pack(side="left", padx=14)
 
     # -- Log ----------------------------------------------------------
     def _build_log_section(self, parent: ctk.CTkFrame) -> None:
-        wrapper = ctk.CTkFrame(parent)
+        wrapper = ctk.CTkFrame(
+            parent,
+            corner_radius=12,
+            border_width=1,
+            border_color=("#dddddd", "#2a2a2a"),
+        )
         wrapper.pack(fill="both", expand=False, pady=(8, 0))
+
+        title_row = ctk.CTkFrame(wrapper, fg_color="transparent")
+        title_row.pack(fill="x", padx=14, pady=(10, 4))
+        accent = ctk.CTkFrame(
+            title_row,
+            width=4,
+            height=18,
+            fg_color=self._SECTION_ACCENT,
+            corner_radius=2,
+        )
+        accent.pack(side="left", padx=(0, 10))
+        accent.pack_propagate(False)
         ctk.CTkLabel(
-            wrapper,
+            title_row,
             text="Activity log",
-            font=ctk.CTkFont(size=13, weight="bold"),
-        ).pack(anchor="w", padx=12, pady=(8, 4))
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(side="left")
+
         self.log_text = ctk.CTkTextbox(wrapper, height=140)
-        self.log_text.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        self.log_text.pack(fill="both", expand=True, padx=18, pady=(0, 12))
         self.log_text.configure(state="disabled")
 
     # ------------------------------------------------------------------

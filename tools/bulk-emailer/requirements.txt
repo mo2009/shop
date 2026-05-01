@@ -1,6 +1,11 @@
 customtkinter>=5.2.2
 openpyxl>=3.1.2
 tkcalendar>=1.6.1
+# python-docx powers the "Import from Word…" feature in the body
+# editor. The bundled converter (word_import.py) reads the .docx and
+# emits HTML with inline styles preserved (colours, font-size, bold,
+# italic, hyperlinks, lists, tables, embedded pictures).
+python-docx>=1.0.0
 # tkhtmlview powers the in-app HTML body preview pop-up. Optional —
 # the app falls back to a plain-text preview when it's not installed.
 tkhtmlview>=0.3.0
