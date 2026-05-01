@@ -357,7 +357,9 @@ def _render_table(
     """
     # Build a per-row layout: each entry is (tc, grid_offset, grid_span, vmerge)
     # where vmerge is "continue", "restart", or None.
-    rows_xml = list(table._tbl.iter(qn("w:tr")))
+    # ``findall`` only matches direct children, so nested tables stay
+    # inside their parent ``<w:tc>`` and don't pollute the outer rows.
+    rows_xml = list(table._tbl.findall(qn("w:tr")))
     layout: list[list[tuple[object, int, int, object]]] = []
     for tr in rows_xml:
         row: list[tuple[object, int, int, object]] = []
