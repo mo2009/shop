@@ -25,6 +25,7 @@ type Order = {
   userName?: string;
   userEmail?: string;
   createdAt?: { seconds?: number };
+  hiddenFromAdmin?: boolean;
 };
 
 /** Bucket orders into the last `n` day-counts for a sparkline. */
@@ -74,7 +75,7 @@ export default function AdminDashboard() {
         ]);
         setOrders(
           ordersSnap.docs
-            .map(d => ({ id: d.id, ...(d.data() as Order) }))
+            .map(d => ({ ...(d.data() as Order), id: d.id }))
             .filter(o => o.hiddenFromAdmin !== true),
         );
         setProductsCount(productsSnap.size);
