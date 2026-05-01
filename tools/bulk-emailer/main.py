@@ -22,7 +22,13 @@ from tkcalendar import DateEntry
 
 import storage
 from auto_mode import build_envelopes, describe_envelopes
-from excel_import import EMAIL_REGEX, extract_emails
+from excel_import import (
+    EMAIL_REGEX,
+    SheetSummary,
+    extract_email_subject_pairs,
+    extract_emails,
+    inspect_workbook,
+)
 from sender import (
     EmailJob,
     OutlookAccount,
@@ -32,7 +38,7 @@ from sender import (
 )
 
 APP_TITLE = "Outlook Bulk Emailer"
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 
 _CID_REGEX = re.compile(r'cid:([A-Za-z0-9_-]+)')
 _HTML_TAG_REGEX = re.compile(r'<[^>]+>')
@@ -329,6 +335,197 @@ class HtmlPreviewDialog(ctk.CTkToplevel):
         ).pack(side="right", padx=14, pady=(0, 14))
 
 
+class ExcelColumnPicker(ctk.CTkToplevel):
+    """Dialog asking the user to pick a sheet + email column + subject column.
+
+    The radio button labels show the column letter, the detected
+    header (row 1), and a small preview of the first few values so
+    the user can tell columns apart even when row 1 is unhelpful.
+    """
+
+    def __init__(self, parent: ctk.CTk, summaries: list[SheetSummary]) -> None:
+        super().__init__(parent)
+        self.title("Pick email + subject columns")
+        self.geometry("720x560")
+        self.minsize(640, 480)
+        self.transient(parent)
+        self.result: tuple[str, str, str | None] | None = None
+        self._summaries: dict[str, SheetSummary] = {s.name: s for s in summaries if s.columns}
+        self._email_var = ctk.StringVar()
+        self._subject_var = ctk.StringVar(value="")  # "" = no subject column
+        self._email_radios: list[ctk.CTkRadioButton] = []
+        self._subject_radios: list[ctk.CTkRadioButton] = []
+
+        ctk.CTkLabel(
+            self,
+            text="Sheet:",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w", padx=14, pady=(12, 2))
+        sheet_names = list(self._summaries.keys())
+        initial_sheet = sheet_names[0] if sheet_names else ""
+        # Prefer the first sheet that already has a suggested email
+        # column (i.e. some column with email-like values in it).
+        for name, summary in self._summaries.items():
+            if summary.suggested_email_column:
+                initial_sheet = name
+                break
+        self._sheet_var = ctk.StringVar(value=initial_sheet)
+        sheet_menu = ctk.CTkOptionMenu(
+            self,
+            values=sheet_names or [""],
+            variable=self._sheet_var,
+            command=lambda _v: self._populate_columns(),
+        )
+        sheet_menu.pack(anchor="w", padx=14)
+
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=14, pady=(10, 0))
+
+        # Two scrollable columns side-by-side: email picker and subject picker.
+        left = ctk.CTkFrame(body)
+        left.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        ctk.CTkLabel(
+            left,
+            text="Which column has the EMAIL addresses?",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w", padx=10, pady=(8, 2))
+        self._email_scroll = ctk.CTkScrollableFrame(left)
+        self._email_scroll.pack(fill="both", expand=True, padx=6, pady=(0, 8))
+
+        right = ctk.CTkFrame(body)
+        right.pack(side="left", fill="both", expand=True, padx=(6, 0))
+        ctk.CTkLabel(
+            right,
+            text="Which column has the SUBJECT for each row?",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w", padx=10, pady=(8, 2))
+        self._subject_scroll = ctk.CTkScrollableFrame(right)
+        self._subject_scroll.pack(fill="both", expand=True, padx=6, pady=(0, 8))
+
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.pack(fill="x", padx=14, pady=(8, 14))
+        ctk.CTkButton(bar, text="Import", command=self._on_ok, width=120).pack(
+            side="right", padx=(6, 0)
+        )
+        ctk.CTkButton(
+            bar,
+            text="Cancel",
+            command=self._on_cancel,
+            width=120,
+            fg_color="transparent",
+            border_width=1,
+        ).pack(side="right")
+
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.bind("<Escape>", lambda _e: self._on_cancel())
+        self.after(50, self._grab)
+        self._populate_columns()
+
+    def _grab(self) -> None:
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+
+    def _populate_columns(self) -> None:
+        for widgets, _ in (
+            (self._email_radios, self._email_scroll),
+            (self._subject_radios, self._subject_scroll),
+        ):
+            for w in widgets:
+                w.destroy()
+        self._email_radios.clear()
+        self._subject_radios.clear()
+
+        sheet = self._summaries.get(self._sheet_var.get())
+        if not sheet:
+            return
+
+        # "(none)" radio for the subject column.
+        none_radio = ctk.CTkRadioButton(
+            self._subject_scroll,
+            text="(none — don't use per-recipient subjects from this file)",
+            variable=self._subject_var,
+            value="",
+        )
+        none_radio.pack(anchor="w", padx=4, pady=2)
+        self._subject_radios.append(none_radio)
+
+        suggested_email = sheet.suggested_email_column or (
+            sheet.columns[0].letter if sheet.columns else ""
+        )
+        # When the user switches sheets, the previously selected
+        # column letters may no longer exist on the new sheet (e.g.
+        # they had picked column "C" on a 4-column sheet, then
+        # switched to one with only A/B). Reset both vars to keep
+        # them in sync with what's actually visible.
+        valid_letters = {c.letter for c in sheet.columns}
+        if self._email_var.get() not in valid_letters:
+            self._email_var.set(suggested_email)
+        if self._subject_var.get() and self._subject_var.get() not in valid_letters:
+            self._subject_var.set("")
+
+        for col in sheet.columns:
+            preview = ", ".join(col.preview[:3])
+            if len(preview) > 70:
+                preview = preview[:70] + "…"
+            label = f"{col.letter}  —  {col.header}"
+            if preview:
+                label += f"\n     e.g. {preview}"
+            email_radio = ctk.CTkRadioButton(
+                self._email_scroll,
+                text=label,
+                variable=self._email_var,
+                value=col.letter,
+            )
+            email_radio.pack(anchor="w", padx=4, pady=2)
+            self._email_radios.append(email_radio)
+
+            subject_radio = ctk.CTkRadioButton(
+                self._subject_scroll,
+                text=label,
+                variable=self._subject_var,
+                value=col.letter,
+            )
+            subject_radio.pack(anchor="w", padx=4, pady=2)
+            self._subject_radios.append(subject_radio)
+
+    def _on_ok(self) -> None:
+        sheet = self._sheet_var.get()
+        email_col = self._email_var.get()
+        subject_col = self._subject_var.get() or None
+        if not sheet or not email_col:
+            messagebox.showwarning(
+                "Missing column",
+                "Pick a sheet and an email column before importing.",
+                parent=self,
+            )
+            return
+        if subject_col and subject_col == email_col:
+            messagebox.showwarning(
+                "Same column",
+                "Email and subject can't be the same column.",
+                parent=self,
+            )
+            return
+        self.result = (sheet, email_col, subject_col)
+        self.destroy()
+
+    def _on_cancel(self) -> None:
+        self.result = None
+        self.destroy()
+
+    @classmethod
+    def ask(
+        cls,
+        parent: ctk.CTk,
+        summaries: list[SheetSummary],
+    ) -> tuple[str, str, str | None] | None:
+        dialog = cls(parent, summaries=summaries)
+        parent.wait_window(dialog)
+        return dialog.result
+
+
 class BulkEmailerApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
@@ -352,6 +549,11 @@ class BulkEmailerApp(ctk.CTk):
         # time are actually attached.
         self._inline_images: dict[str, str] = {}
         self._next_cid = 1
+        # Map of lowercased recipient email -> per-recipient subject,
+        # populated when the user imports an Excel file with the
+        # "Use subjects from Excel" toggle on. Cleared when they
+        # clear recipients or import without the toggle.
+        self._excel_subjects: dict[str, str] = {}
 
         self._build_ui()
         self._apply_initial_settings()
@@ -532,6 +734,31 @@ class BulkEmailerApp(ctk.CTk):
             border_width=1,
         ).pack(side="left", padx=6)
 
+        # Toggle: when on, the next Excel import asks the user to pick
+        # an email column AND a subject column. Each recipient is then
+        # sent with the subject from their row.
+        excel_subject_row = ctk.CTkFrame(body, fg_color="transparent")
+        excel_subject_row.pack(fill="x", pady=(8, 0))
+        self.use_excel_subjects_var = ctk.BooleanVar(
+            value=bool(
+                self.state_data["settings"].get("use_excel_subjects", False)
+            )
+        )
+        ctk.CTkSwitch(
+            excel_subject_row,
+            text="Use subjects from Excel (per-recipient)",
+            variable=self.use_excel_subjects_var,
+            command=self._on_use_excel_subjects_toggled,
+        ).pack(side="left")
+        self.excel_subjects_status = ctk.CTkLabel(
+            excel_subject_row,
+            text="",
+            text_color=("gray35", "gray70"),
+            font=ctk.CTkFont(size=12),
+        )
+        self.excel_subjects_status.pack(side="left", padx=10)
+        self._refresh_excel_subjects_status()
+
         # Send mode as segmented buttons.
         mode_row = ctk.CTkFrame(body, fg_color="transparent")
         mode_row.pack(fill="x", pady=(12, 0))
@@ -615,6 +842,12 @@ class BulkEmailerApp(ctk.CTk):
         )
         if not path:
             return
+        if self.use_excel_subjects_var.get():
+            self._import_excel_with_subjects(path)
+        else:
+            self._import_excel_emails_only(path)
+
+    def _import_excel_emails_only(self, path: str) -> None:
         try:
             emails = extract_emails(path)
         except Exception as exc:  # pragma: no cover - GUI path
@@ -623,6 +856,61 @@ class BulkEmailerApp(ctk.CTk):
         if not emails:
             messagebox.showinfo("No emails found", "No email addresses were found in that file.")
             return
+        self._merge_imported_emails(emails)
+        self._log(f"Imported {len(emails)} email address(es) from {path}")
+
+    def _import_excel_with_subjects(self, path: str) -> None:
+        try:
+            summaries = inspect_workbook(path)
+        except Exception as exc:  # pragma: no cover - GUI path
+            messagebox.showerror("Import failed", f"Could not read file:\n{exc}")
+            return
+        if not summaries or all(not s.columns for s in summaries):
+            messagebox.showinfo(
+                "Empty workbook",
+                "That Excel file doesn't seem to have any data.",
+            )
+            return
+        choice = ExcelColumnPicker.ask(self, summaries=summaries)
+        if not choice:
+            return
+        sheet_name, email_col, subject_col = choice
+        try:
+            pairs = extract_email_subject_pairs(
+                path,
+                sheet_name=sheet_name,
+                email_column=email_col,
+                subject_column=subject_col,
+            )
+        except Exception as exc:  # pragma: no cover - GUI path
+            messagebox.showerror("Import failed", f"Could not read file:\n{exc}")
+            return
+        if not pairs:
+            messagebox.showinfo(
+                "No emails found",
+                f"No email addresses were found in column {email_col} on sheet "
+                f"'{sheet_name}'.",
+            )
+            return
+
+        # Update the per-recipient subject map, then merge the emails
+        # into the recipients textbox just like the simpler flow.
+        with_subjects = 0
+        for email, subject in pairs:
+            if subject:
+                self._excel_subjects[email.lower()] = subject
+                with_subjects += 1
+        emails = [email for email, _ in pairs]
+        self._merge_imported_emails(emails)
+        self._refresh_excel_subjects_status()
+        self._refresh_subject_section_banner()
+        self._log(
+            f"Imported {len(emails)} email(s) from sheet '{sheet_name}' "
+            f"(column {email_col}); {with_subjects} have a per-recipient "
+            f"subject (column {subject_col or 'none'})."
+        )
+
+    def _merge_imported_emails(self, emails: list[str]) -> None:
         existing = self.recipients_text.get("1.0", "end").strip()
         new_block = "\n".join(emails)
         merged = f"{existing}\n{new_block}" if existing else new_block
@@ -630,12 +918,43 @@ class BulkEmailerApp(ctk.CTk):
         self.recipients_text.insert("1.0", merged)
         self._refresh_recipient_count()
         self._refresh_preview()
-        self._log(f"Imported {len(emails)} email address(es) from {path}")
 
     def _on_clear_recipients(self) -> None:
         self.recipients_text.delete("1.0", "end")
+        # Also drop any per-recipient Excel subjects — they were tied
+        # to the previous import and would be confusing if a different
+        # paste/import comes next.
+        self._excel_subjects.clear()
+        self._refresh_excel_subjects_status()
+        if hasattr(self, "subject_section_status_label"):
+            self._refresh_subject_section_banner()
         self._refresh_recipient_count()
         self._refresh_preview()
+
+    def _on_use_excel_subjects_toggled(self) -> None:
+        self.state_data["settings"]["use_excel_subjects"] = bool(
+            self.use_excel_subjects_var.get()
+        )
+        storage.save(self.state_data)
+        self._refresh_excel_subjects_status()
+        if hasattr(self, "subject_section_status_label"):
+            self._refresh_subject_section_banner()
+
+    def _refresh_excel_subjects_status(self) -> None:
+        if not hasattr(self, "excel_subjects_status"):
+            return
+        if not self.use_excel_subjects_var.get():
+            self.excel_subjects_status.configure(
+                text="(toggle off — using one shared subject for everyone)"
+            )
+        elif not self._excel_subjects:
+            self.excel_subjects_status.configure(
+                text="(import an Excel file and the program will ask which column has subjects)"
+            )
+        else:
+            self.excel_subjects_status.configure(
+                text=f"({len(self._excel_subjects)} per-recipient subject(s) loaded)"
+            )
 
     def _refresh_recipient_count(self) -> None:
         emails = _parse_recipients(self.recipients_text.get("1.0", "end"))
@@ -859,6 +1178,44 @@ class BulkEmailerApp(ctk.CTk):
 
         self.subject_var = ctk.StringVar(value="")
         ctk.CTkEntry(body, textvariable=self.subject_var).pack(fill="x", pady=(8, 0))
+
+        # Banner shown when "Use subjects from Excel" is on. Tells the
+        # user that the subject they type here is now a fallback for
+        # any recipient that didn't have a subject in the imported
+        # file (or for CC/Auto envelopes that pool many recipients
+        # into one message).
+        self.subject_section_status_label = ctk.CTkLabel(
+            body,
+            text="",
+            text_color=("gray35", "gray70"),
+            wraplength=900,
+            justify="left",
+            font=ctk.CTkFont(size=12),
+        )
+        self.subject_section_status_label.pack(anchor="w", pady=(6, 0))
+        self._refresh_subject_section_banner()
+
+    def _refresh_subject_section_banner(self) -> None:
+        if not hasattr(self, "subject_section_status_label"):
+            return
+        if self.use_excel_subjects_var.get():
+            n = len(self._excel_subjects)
+            if n:
+                msg = (
+                    f"\u2139\ufe0f  {n} per-recipient subject(s) loaded from "
+                    f"Excel \u2014 each recipient will get their own subject. "
+                    f"The subject above is the fallback for recipients "
+                    f"without one (and for CC/Auto envelopes)."
+                )
+            else:
+                msg = (
+                    "\u2139\ufe0f  'Use subjects from Excel' is on, but no "
+                    "Excel file with a subject column has been imported "
+                    "yet. The subject above will be used for everyone."
+                )
+        else:
+            msg = ""
+        self.subject_section_status_label.configure(text=msg)
 
     def _on_subject_preset_pick(self, _event: object) -> None:
         value = self.subject_combo.get()
@@ -1299,7 +1656,39 @@ class BulkEmailerApp(ctk.CTk):
         )
         self.minute_spin.pack(side="left")
 
+        # "Wait between sends" delay applies to *both* immediate and
+        # scheduled jobs (scheduled messages are simply staggered by
+        # the same offset in their DeferredDeliveryTime).
+        delay_row = ctk.CTkFrame(body, fg_color="transparent")
+        delay_row.pack(anchor="w", pady=(10, 0))
+        ctk.CTkLabel(delay_row, text="Wait between sends:").pack(side="left", padx=(0, 6))
+        initial_delay = int(
+            self.state_data["settings"].get("delay_between_sends_seconds", 0) or 0
+        )
+        self.delay_var = ctk.StringVar(value=str(initial_delay))
+        self.delay_spin = tk.Spinbox(
+            delay_row,
+            from_=0,
+            to=3600,
+            increment=5,
+            width=5,
+            textvariable=self.delay_var,
+        )
+        self.delay_spin.pack(side="left")
+        ctk.CTkLabel(delay_row, text="seconds (0 = no wait)").pack(side="left", padx=(6, 0))
+        self.delay_var.trace_add("write", lambda *_a: self._on_delay_changed())
+
         self._update_schedule_state()
+
+    def _on_delay_changed(self) -> None:
+        try:
+            value = max(0, int(self.delay_var.get() or "0"))
+        except ValueError:
+            return
+        if self.state_data["settings"].get("delay_between_sends_seconds") == value:
+            return
+        self.state_data["settings"]["delay_between_sends_seconds"] = value
+        storage.save(self.state_data)
 
     def _update_schedule_state(self) -> None:
         enabled = self.schedule_mode_var.get() == "later"
@@ -1436,6 +1825,24 @@ class BulkEmailerApp(ctk.CTk):
             if cid in used_cids
         }
 
+        # Per-recipient subject overrides only make sense in Individual
+        # mode (one recipient = one message = one subject). In CC and
+        # Auto modes a single message goes to multiple recipients, so
+        # there's no meaningful "per-recipient" subject — the global
+        # subject is used for everyone in those modes.
+        subject_overrides: dict[str, str] = {}
+        if (
+            mode == "individual"
+            and self.use_excel_subjects_var.get()
+            and self._excel_subjects
+        ):
+            subject_overrides = dict(self._excel_subjects)
+
+        try:
+            delay_seconds = max(0, int(self.delay_var.get() or "0"))
+        except ValueError:
+            delay_seconds = 0
+
         job = EmailJob(
             envelopes=envelopes,
             subject=subject,
@@ -1445,6 +1852,8 @@ class BulkEmailerApp(ctk.CTk):
             mode_label=mode,
             is_html=is_html,
             inline_images=inline_images,
+            subject_overrides=subject_overrides,
+            delay_seconds=float(delay_seconds),
         )
         return job, scheduled
 
