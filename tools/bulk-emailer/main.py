@@ -51,6 +51,21 @@ def _looks_like_html(text: str) -> bool:
 
 _BR_BEFORE_NEWLINE_REGEX = re.compile(r'<br\s*/?>\s*\Z', re.IGNORECASE)
 
+# Block-level tags that already define their own vertical spacing —
+# inserting an extra ``<br>`` between two of them produces an unwanted
+# double gap in Outlook. Imports from Word in particular emit one
+# block tag per line (``<p>``, ``<h1>``, ``<table>``, ``<ul>``, …),
+# so we must NOT add ``<br>`` at the end of a line that closes one
+# of those, or before a line that opens one.
+_BLOCK_CLOSE_REGEX = re.compile(
+    r'</(?:p|h[1-6]|div|ul|ol|li|table|thead|tbody|tr|td|th|blockquote|pre|figure|hr|br)\s*>\s*\Z',
+    re.IGNORECASE,
+)
+_BLOCK_OPEN_REGEX = re.compile(
+    r'^\s*<(?:p|h[1-6]|div|ul|ol|li|table|thead|tbody|tr|td|th|blockquote|pre|figure|hr|br)\b',
+    re.IGNORECASE,
+)
+
 
 def _newlines_to_br(body: str) -> str:
     """Insert ``<br>`` before every bare newline in ``body``.
@@ -60,6 +75,14 @@ def _newlines_to_br(body: str) -> str:
     silently disappear. This walks through the body line by line and
     appends ``<br>`` to each line that doesn't already end with one
     (so a ``<br>`` the user typed manually isn't doubled).
+
+    Lines that already end with a block-level closing tag (``</p>``,
+    ``</h1>``, ``</table>``, ``</ul>``, …) get no ``<br>`` appended,
+    and lines that *start* with a block-level opening tag don't get a
+    ``<br>`` inserted before them either. This keeps Word-imported
+    HTML — which emits one block element per line — from gaining a
+    spurious blank line between every paragraph, heading, list and
+    table boundary.
 
     Carriage returns are normalised to plain newlines first.
     """
@@ -71,7 +94,11 @@ def _newlines_to_br(body: str) -> str:
             # Last line: nothing more to break; append untouched.
             out.append(line)
             break
-        if _BR_BEFORE_NEWLINE_REGEX.search(line):
+        next_line = lines[index + 1]
+        already_breaks = _BR_BEFORE_NEWLINE_REGEX.search(line) is not None
+        ends_block = _BLOCK_CLOSE_REGEX.search(line) is not None
+        next_is_block = _BLOCK_OPEN_REGEX.search(next_line) is not None
+        if already_breaks or ends_block or next_is_block:
             out.append(line + '\n')
         else:
             out.append(line + '<br>\n')
