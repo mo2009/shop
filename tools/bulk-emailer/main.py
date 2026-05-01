@@ -454,11 +454,16 @@ class ExcelColumnPicker(ctk.CTkToplevel):
         suggested_email = sheet.suggested_email_column or (
             sheet.columns[0].letter if sheet.columns else ""
         )
-        # If the auto-suggested email column is the same as the
-        # currently selected subject column, blank the subject so
-        # we don't end up with both pointing at the same data.
-        if self._email_var.get() not in {c.letter for c in sheet.columns}:
+        # When the user switches sheets, the previously selected
+        # column letters may no longer exist on the new sheet (e.g.
+        # they had picked column "C" on a 4-column sheet, then
+        # switched to one with only A/B). Reset both vars to keep
+        # them in sync with what's actually visible.
+        valid_letters = {c.letter for c in sheet.columns}
+        if self._email_var.get() not in valid_letters:
             self._email_var.set(suggested_email)
+        if self._subject_var.get() and self._subject_var.get() not in valid_letters:
+            self._subject_var.set("")
 
         for col in sheet.columns:
             preview = ", ".join(col.preview[:3])
