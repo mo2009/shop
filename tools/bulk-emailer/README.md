@@ -46,15 +46,25 @@ whichever account is already signed in to Outlook on the PC — there is
   as an offset on each subsequent message's `DeferredDeliveryTime`,
   so the Outbox releases them staggered instead of all at once.
 - **Rich-text body (HTML)**: a Format toolbar above the body editor adds
-  **Bold / Italic / Underline / Color / Link / Image / Preview** buttons.
-  Bold / Italic / Underline / Color wrap the text you've selected.
-  *Link* opens a small dialog asking for a URL and (optional) display
-  text. *Image* lets you embed an image **inline** in the message body
-  (it's attached as a hidden CID attachment, so the recipient sees the
-  picture inside the email rather than as a separate file). *Preview*
-  pops up a window that renders the HTML the way Outlook will. There's
-  a "Send as HTML" toggle on the toolbar — switch it off to send the
-  body as plain text instead.
+  **Bold / Italic / Underline / Color / Link / Image / From Word /
+  Preview** buttons. Bold / Italic / Underline / Color wrap the text
+  you've selected. *Link* opens a small dialog asking for a URL and
+  (optional) display text. *Image* lets you embed an image **inline**
+  in the message body (it's attached as a hidden CID attachment, so the
+  recipient sees the picture inside the email rather than as a separate
+  file). *Preview* pops up a window that renders the HTML the way
+  Outlook will. There's a "Send as HTML" toggle on the toolbar — switch
+  it off to send the body as plain text instead.
+- **Import from Word (.docx → HTML)**: click **📄 From Word** in the
+  format toolbar and pick a Word document. The form is converted to
+  HTML preserving fonts, colours, sizes, bold/italic/underline,
+  headings, bullet/numbered lists, hyperlinks, tables, and any
+  pictures embedded in the document (which are pulled out and attached
+  inline so they show up *inside* the email body, not as paperclip
+  attachments). The result is dropped straight into the body editor;
+  you can keep editing it, hit *Preview* to confirm it looks right,
+  and then *Send*. Ideal when your marketing form / quote / letter is
+  authored in Word — no copy-paste, no broken layout.
 - **Attachments**: attach any number of files.
 - **Schedule send**: pick a date and time; messages are queued in
   Outlook's Outbox with `DeferredDeliveryTime`, so Outlook itself
@@ -168,6 +178,7 @@ relies on Outlook's existing sign-in.
 | `sender.py` | Outlook COM send logic; no GUI imports |
 | `auto_mode.py` | Grouping logic for Auto send mode (no Outlook deps) |
 | `excel_import.py` | Extracts emails from `.xlsx` via regex |
+| `word_import.py` | Converts `.docx` to email-ready HTML, preserving inline styles, tables and embedded pictures |
 | `storage.py` | JSON persistence for presets, settings, and priority keywords |
 | `requirements.txt` | Python dependencies |
 | `run.bat` / `run.sh` | One-click launchers |

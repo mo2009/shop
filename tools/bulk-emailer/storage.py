@@ -40,14 +40,19 @@ DEFAULT_BODIES = [
 DEFAULT_PRIORITY_KEYWORDS = ["purchasing", "operation", "ops"]
 
 
-def _data_dir() -> Path:
+def data_dir() -> Path:
+    """Per-user directory where the app keeps its persistent files."""
     path = Path.home() / ".bulk_emailer"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
+# Internal alias kept so existing call sites don't have to change.
+_data_dir = data_dir
+
+
 def _data_file() -> Path:
-    return _data_dir() / "data.json"
+    return data_dir() / "data.json"
 
 
 def load() -> dict[str, Any]:
